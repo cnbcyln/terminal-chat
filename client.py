@@ -606,7 +606,12 @@ def receive_messages(client_socket):
                     
                     # Kullanıcı yanıtını al
                     try:
-                        response = input().strip().lower()
+                        if sys.stdin.isatty():
+                            response = input().strip().lower()
+                        else:
+                            # Pipe modunda otomatik "evet" yanıtı
+                            response = "evet"
+                            print("evet (otomatik)")
                         
                         if response in ['evet', 'e', 'yes', 'y']:
                             # Onaylandı
@@ -617,6 +622,10 @@ def receive_messages(client_socket):
                             # İptal edildi
                             client_socket.send("__leave_cancelled__:user".encode('utf-8'))
                             print("❌ Çıkış iptal edildi.")
+                    except EOFError:
+                        # Pipe modunda EOF hatası geldiğinde otomatik onay
+                        client_socket.send("__leave_confirmed__:user".encode('utf-8'))
+                        print("✅ Pipe modunda otomatik çıkış onayı.")
                     except:
                         # Hata durumunda iptal et
                         client_socket.send("__leave_cancelled__:user".encode('utf-8'))
@@ -633,6 +642,17 @@ def receive_messages(client_socket):
         except:
             break
 
+def safe_input(prompt, default="", is_pipe_mode=False):
+    """Pipe modunda güvenli input alma fonksiyonu."""
+    if is_pipe_mode:
+        print(f"{prompt}{default}")
+        return default
+    try:
+        return input(prompt)
+    except EOFError:
+        print(f"\nPipe modunda EOF. Varsayılan değer kullanılıyor: {default}")
+        return default
+
 def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     """İstemciyi başlatır ve sunucuya bağlar."""
     global stop_thread, current_input, client_cipher, current_client_socket
@@ -640,12 +660,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     current_client_socket = client
     
     # Pipe modunda çalışıp çalışmadığını kontrol et
-    if not sys.stdin.isatty():
-        print("❌ İstemci modu pipe ile çalıştırılamaz.")
-        print("💡 İstemci olarak bağlanmak için dosyayı indirip çalıştırın:")
-        print(f"   wget https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py")
-        print(f"   python3 client.py --connect {host_ip}:{port}")
-        return
+    is_pipe_mode = not sys.stdin.isatty()
     
     try:
         client.connect((host_ip, port))
@@ -661,53 +676,68 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
         clear_screen()
         print("Terminal Chat'e Hoş Geldiniz!")
     
-    choice = input("1. Yeni Oda Oluştur\n2. Odaya Katıl\n> ")
+    # Pipe modunda otomatik oda oluştur
+    if is_pipe_mode:
+        print("🔍 Pipe modunda çalıştığınız için otomatik demo oda oluşturuluyor...")
+        choice = '1'  # Oda oluştur
+        username = f"Host_{random.randint(1000, 9999)}"
+        room_name_req = f"Demo_Oda_{random.randint(100, 999)}"
+        print(f"📝 Oda adı: '{room_name_req}'")
+        print(f"👤 Kullanıcı adı: '{username}'")
+        print()
+    else:
+        choice = input("1. Yeni Oda Oluştur\n2. Odaya Katıl\n> ")
     
     current_room_id = None  # Odaya katılım için room_id'yi sakla
-    username = None
+    username = username if is_pipe_mode else None
     
     if choice == '1':
-        # Önce oda adı varlığını kontrol et
-        room_name_req = input("Oda adı: ")
-        print("🔍 Oda adı kontrol ediliyor...")
-        client.send(f"__check_room_name__:{room_name_req}".encode('utf-8'))
-        
-        # Oda ismi kontrol yanıtını bekle
-        try:
-            room_name_check_response = client.recv(1024).decode('utf-8').strip()
+        if not is_pipe_mode:
+            # Önce oda adı varlığını kontrol et
+            room_name_req = safe_input("Oda adı: ", f"Demo_Oda_{random.randint(100, 999)}", is_pipe_mode)
+            print("🔍 Oda adı kontrol ediliyor...")
+            client.send(f"__check_room_name__:{room_name_req}".encode('utf-8'))
             
-            if room_name_check_response.startswith("ROOM_NAME_AVAILABLE"):
-                _, available_room_name = room_name_check_response.split(':', 1)
-                print(f"✅ Oda adı '{available_room_name}' müsait!")
-                print()
+            # Oda ismi kontrol yanıtını bekle
+            try:
+                room_name_check_response = client.recv(1024).decode('utf-8').strip()
                 
-                # Oda adı müsait, kullanıcı adını sor
-                username = input("Kullanıcı adınız: ")
-                client.send(f"__create_room__:{room_name_req}:{username}".encode('utf-8'))
-                
-            elif room_name_check_response.startswith("ROOM_NAME_EXISTS"):
-                _, existing_room_name, existing_room_id, user_count = room_name_check_response.split(':', 3)
-                print(f"❌ '{existing_room_name}' adında oda zaten mevcut!")
-                print(f"📝 Mevcut oda ID'si: {existing_room_id}")
-                print(f"👥 Aktif kullanıcı sayısı: {user_count}")
-                print()
-                print("💡 Seçenekleriniz:")
-                print("   1. Farklı bir oda adı ile yeni oda oluşturun")
-                print(f"   2. Mevcut odaya katılın (Oda ID: {existing_room_id})")
+                if room_name_check_response.startswith("ROOM_NAME_AVAILABLE"):
+                    _, available_room_name = room_name_check_response.split(':', 1)
+                    print(f"✅ Oda adı '{available_room_name}' müsait!")
+                    print()
+                    
+                    # Oda adı müsait, kullanıcı adını sor
+                    username = safe_input("Kullanıcı adınız: ", f"User_{random.randint(1000, 9999)}", is_pipe_mode)
+                    client.send(f"__create_room__:{room_name_req}:{username}".encode('utf-8'))
+                    
+                elif room_name_check_response.startswith("ROOM_NAME_EXISTS"):
+                    _, existing_room_name, existing_room_id, user_count = room_name_check_response.split(':', 3)
+                    print(f"❌ '{existing_room_name}' adında oda zaten mevcut!")
+                    print(f"📝 Mevcut oda ID'si: {existing_room_id}")
+                    print(f"👥 Aktif kullanıcı sayısı: {user_count}")
+                    print()
+                    print("💡 Seçenekleriniz:")
+                    print("   1. Farklı bir oda adı ile yeni oda oluşturun")
+                    print(f"   2. Mevcut odaya katılın (Oda ID: {existing_room_id})")
+                    client.close()
+                    return
+                else:
+                    print(f"Beklenmeyen sunucu yanıtı: {room_name_check_response}")
+                    client.close()
+                    return
+                    
+            except Exception as e:
+                print(f"Oda adı kontrol hatası: {e}")
                 client.close()
                 return
-            else:
-                print(f"Beklenmeyen sunucu yanıtı: {room_name_check_response}")
-                client.close()
-                return
+        else:
+            # Pipe modunda otomatik oda oluştur (kontrol etmeden)
+            client.send(f"__create_room__:{room_name_req}:{username}".encode('utf-8'))
                 
-        except Exception as e:
-            print(f"Oda adı kontrol hatası: {e}")
-            client.close()
-            return
     elif choice == '2':
         # Önce oda varlığını kontrol et
-        current_room_id = input("Oda ID'si: ")
+        current_room_id = safe_input("Oda ID'si: ", "1234", is_pipe_mode)
         print("🔍 Oda kontrol ediliyor...")
         client.send(f"__check_room__:{current_room_id}".encode('utf-8'))
         
@@ -723,15 +753,25 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                 print()
                 
                 # Oda mevcut, kullanıcı adını sor
-                username = input("Kullanıcı adınız: ")
+                username = safe_input("Kullanıcı adınız: ", f"User_{random.randint(1000, 9999)}", is_pipe_mode)
                 client.send(f"__join_room__:{current_room_id}:{username}".encode('utf-8'))
                 
             elif room_check_response.startswith("ROOM_NOT_FOUND"):
                 _, room_id = room_check_response.split(':', 1)
-                print(f"❌ Oda '{room_id}' bulunamadı!")
-                print("💡 Lütfen doğru oda ID'sini kontrol edin veya yeni bir oda oluşturun.")
-                client.close()
-                return
+                if is_pipe_mode:
+                    print(f"⚠️  Oda '{room_id}' bulunamadı, otomatik oda oluşturuluyor...")
+                    # Pipe modunda oda yoksa otomatik oda oluştur
+                    choice = '1'
+                    room_name_req = f"Demo_Oda_{random.randint(100, 999)}"
+                    username = f"Host_{random.randint(1000, 9999)}"
+                    print(f"📝 Yeni oda adı: '{room_name_req}'")
+                    print(f"👤 Kullanıcı adı: '{username}'")
+                    client.send(f"__create_room__:{room_name_req}:{username}".encode('utf-8'))
+                else:
+                    print(f"❌ Oda '{room_id}' bulunamadı!")
+                    print("💡 Lütfen doğru oda ID'sini kontrol edin veya yeni bir oda oluşturun.")
+                    client.close()
+                    return
             else:
                 print(f"Beklenmeyen sunucu yanıtı: {room_check_response}")
                 client.close()
@@ -742,7 +782,8 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
             client.close()
             return
     else:
-        print("Geçersiz seçim.")
+        if not is_pipe_mode:
+            print("Geçersiz seçim.")
         client.close()
         return
 
@@ -766,11 +807,16 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                     print(f"\n❌ Kullanıcı adı '{taken_username}' zaten mevcut!")
                     print(f"💡 Önerilen alternatif: '{suggested_username}'")
                     
-                    new_choice = input("1. Önerilen adı kullan\n2. Farklı bir ad gir\n> ")
-                    if new_choice == '1':
+                    if is_pipe_mode:
+                        # Pipe modunda otomatik olarak önerilen adı kullan
                         new_username = suggested_username
+                        print(f"📝 Pipe modunda otomatik seçim: '{new_username}'")
                     else:
-                        new_username = input("Yeni kullanıcı adınız: ")
+                        new_choice = safe_input("1. Önerilen adı kullan\n2. Farklı bir ad gir\n> ", "1", is_pipe_mode)
+                        if new_choice == '1':
+                            new_username = suggested_username
+                        else:
+                            new_username = safe_input("Yeni kullanıcı adınız: ", f"User_{random.randint(1000, 9999)}", is_pipe_mode)
                     
                     # Tekrar deneme - room_id'yi kullan
                     client.send(f"__join_with_new_username__:{current_room_id}:{new_username}".encode('utf-8'))
@@ -938,25 +984,9 @@ if __name__ == "__main__":
         print(f"   python3 client.py --connect {local_ip}:{selected_port}")
         
         # Sunucuyu başlatan kişi aynı zamanda bir istemci olarak kendisine bağlanır
-        # Pipe modunda istemci çalıştırma
-        if sys.stdin.isatty():
-            print("🔗 Kendi sunucunuza istemci olarak bağlanılıyor...")
-            print()
-            start_client('127.0.0.1', selected_port, show_welcome=False)
-        else:
-            print("📋 Pipe modunda çalıştığınız için istemci modu devre dışı.")
-            print("🌐 İstemci olarak bağlanmak için başka bir terminal açın:")
-            print(f"   python3 client.py --connect {local_ip}:{selected_port}")
-            print("\n⏹️  Sunucuyu durdurmak için Ctrl+C tuşlayın.")
-            
-            # Sunucu çalışmaya devam etsin
-            try:
-                while True:
-                    import time
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                print("\n🛑 Sunucu durduruluyor...")
-                sys.exit(0)
+        print("🔗 Kendi sunucunuza istemci olarak bağlanılıyor...")
+        print()
+        start_client('127.0.0.1', selected_port, show_welcome=False)
 
     elif len(sys.argv) == 3 and sys.argv[1] == '--host':
         # Sunucu olarak çalıştır (belirtilen port)
@@ -1001,25 +1031,9 @@ if __name__ == "__main__":
         print(f"   python3 client.py --connect {local_ip}:{selected_port}")
         
         # Sunucuyu başlatan kişi aynı zamanda bir istemci olarak kendisine bağlanır
-        # Pipe modunda istemci çalıştırma
-        if sys.stdin.isatty():
-            print("🔗 Kendi sunucunuza istemci olarak bağlanılıyor...")
-            print()
-            start_client('127.0.0.1', selected_port, show_welcome=False)
-        else:
-            print("📋 Pipe modunda çalıştığınız için istemci modu devre dışı.")
-            print("🌐 İstemci olarak bağlanmak için başka bir terminal açın:")
-            print(f"   python3 client.py --connect {local_ip}:{selected_port}")
-            print("\n⏹️  Sunucuyu durdurmak için Ctrl+C tuşlayın.")
-            
-            # Sunucu çalışmaya devam etsin
-            try:
-                while True:
-                    import time
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                print("\n🛑 Sunucu durduruluyor...")
-                sys.exit(0)
+        print("🔗 Kendi sunucunuza istemci olarak bağlanılıyor...")
+        print()
+        start_client('127.0.0.1', selected_port, show_welcome=False)
 
     elif len(sys.argv) == 3 and sys.argv[1] == '--connect':
         # İstemci olarak bir sunucuya bağlan
