@@ -98,9 +98,7 @@ ENCRYPTION_AVAILABLE = import_with_auto_install()
 
 
 # --- Discord Tarzı Mesaj Formatı ---
-# Her kullanıcının son mesaj zamanını takip et
-last_message_times = {}  # {username: (hour, minute)}
-last_message_user = None  # Son mesajı gönderen kullanıcı
+# Mesaj gruplandırma artık oda bazında tutulacak (global değişkenler kaldırıldı)
 
 def supports_color():
     """Terminal'in renk desteği olup olmadığını kontrol eder."""
@@ -111,25 +109,30 @@ def supports_color():
     )
 
 
-def format_discord_message(username, message, is_system=False, check_grouping=True):
+def format_discord_message(username, message, room_data=None, is_system=False, check_grouping=True):
     """Discord tarzı mesaj formatı oluşturur."""
-    global last_message_times, last_message_user
-    
     now = datetime.now()
     current_time = (now.hour, now.minute)
     time_str = now.strftime("Bugün saat %H:%M")
     
-    # Mesaj gruplandırma kontrolü
+    # Mesaj gruplandırma kontrolü - oda bazında
     should_group = False
-    if check_grouping and not is_system and username in last_message_times:
-        last_time = last_message_times[username]
-        if last_time == current_time and last_message_user == username:
-            should_group = True
+    if check_grouping and not is_system and room_data is not None:
+        # Oda bazında last_message verilerini kontrol et
+        last_message_times = room_data.get("last_message_times", {})
+        last_message_user = room_data.get("last_message_user", None)
+        
+        if username in last_message_times:
+            last_time = last_message_times[username]
+            if last_time == current_time and last_message_user == username:
+                should_group = True
     
-    # Son mesaj zamanını ve kullanıcıyı güncelle
-    if not is_system:
-        last_message_times[username] = current_time
-        last_message_user = username
+    # Son mesaj zamanını ve kullanıcıyı güncelle - oda bazında
+    if not is_system and room_data is not None:
+        if "last_message_times" not in room_data:
+            room_data["last_message_times"] = {}
+        room_data["last_message_times"][username] = current_time
+        room_data["last_message_user"] = username
     
     # Mesaj satırlarını ayır (uzun mesajlar için)
     message_lines = message.split('\n')
@@ -214,7 +217,7 @@ def format_discord_message(username, message, is_system=False, check_grouping=Tr
 
 def format_system_message(message):
     """Sistem mesajları için özel format."""
-    return format_discord_message("Sistem", message, is_system=True)
+    return format_discord_message("Sistem", message, room_data=None, is_system=True)
 
 
 # --- Ortak Ayarlar ---
@@ -691,16 +694,15 @@ def handle_client(conn, addr):
                     if ENCRYPTION_AVAILABLE and cipher:
                         try:
                             decrypted_message = decrypt_message(data, cipher)
-                            formatted_message = format_discord_message(
-                                username, decrypted_message
-                            )
+                            # Sunucu tarafında basit format - gruplandırma istemci tarafında yapılacak
+                            formatted_message = f"MSG:{username}:{decrypted_message}"
                             broadcast(current_room, formatted_message, conn)
                         except Exception:
                             # Şifre çözülemezse orijinal mesajı kullan
-                            formatted_message = format_discord_message(username, data)
+                            formatted_message = f"MSG:{username}:{data}"
                             broadcast(current_room, formatted_message, conn)
                     else:
-                        formatted_message = format_discord_message(username, data)
+                        formatted_message = f"MSG:{username}:{data}"
                         broadcast(current_room, formatted_message, conn)
 
     except (ConnectionResetError, UnicodeDecodeError):
@@ -751,6 +753,12 @@ input_lock = threading.Lock()
 current_input = ""
 client_cipher = None  # İstemci tarafında şifreleme anahtarı
 current_client_socket = None  # Global client socket erişimi
+
+# İstemci tarafında mesaj gruplandırması için
+client_message_data = {
+    "last_message_times": {},
+    "last_message_user": None
+}
 
 
 def setup_terminal():
@@ -825,11 +833,29 @@ def redraw_line(message):
         ):
             try:
                 decrypted_message = decrypt_message(message, client_cipher)
-                sys.stdout.write("\r\x1b[K" + decrypted_message + "\n")
+                # MSG: formatını kontrol et
+                if decrypted_message.startswith("MSG:"):
+                    _, msg_username, msg_content = decrypted_message.split(":", 2)
+                    formatted_msg = format_discord_message(msg_username, msg_content, room_data=client_message_data, check_grouping=True)
+                    sys.stdout.write("\r\x1b[K" + formatted_msg + "\n")
+                else:
+                    sys.stdout.write("\r\x1b[K" + decrypted_message + "\n")
             except Exception:
-                sys.stdout.write("\r\x1b[K" + message + "\n")
+                # MSG: formatını kontrol et
+                if message.startswith("MSG:"):
+                    _, msg_username, msg_content = message.split(":", 2)
+                    formatted_msg = format_discord_message(msg_username, msg_content, room_data=client_message_data, check_grouping=True)
+                    sys.stdout.write("\r\x1b[K" + formatted_msg + "\n")
+                else:
+                    sys.stdout.write("\r\x1b[K" + message + "\n")
         else:
-            sys.stdout.write("\r\x1b[K" + message + "\n")
+            # MSG: formatını kontrol et
+            if message.startswith("MSG:"):
+                _, msg_username, msg_content = message.split(":", 2)
+                formatted_msg = format_discord_message(msg_username, msg_content, room_data=client_message_data, check_grouping=True)
+                sys.stdout.write("\r\x1b[K" + formatted_msg + "\n")
+            else:
+                sys.stdout.write("\r\x1b[K" + message + "\n")
 
         sys.stdout.write(f"Siz: {current_input}")
         sys.stdout.flush()
@@ -953,13 +979,19 @@ def safe_input(prompt, default="", is_pipe_mode=False):
 
 def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     """İstemciyi başlatır ve sunucuya bağlar."""
-    global stop_thread, current_input, client_cipher, current_client_socket, pause_input, left_via_leave
+    global stop_thread, current_input, client_cipher, current_client_socket, pause_input, left_via_leave, client_message_data
 
     # Global değişkenleri sıfırla
     stop_thread = False
     pause_input = False
     left_via_leave = False
     current_input = ""
+    
+    # İstemci mesaj gruplandırma verilerini sıfırla
+    client_message_data = {
+        "last_message_times": {},
+        "last_message_user": None
+    }
 
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     current_client_socket = client
@@ -1531,7 +1563,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                                 client.send(current_input.encode("utf-8"))
 
                             # Sadece normal mesajlar için echo yap (Discord formatı)
-                            my_message = format_discord_message(username, current_input)
+                            my_message = format_discord_message(username, current_input, room_data=client_message_data, check_grouping=True)
                             sys.stdout.write("\r\x1b[K" + my_message + "\n")
 
                     current_input = ""
