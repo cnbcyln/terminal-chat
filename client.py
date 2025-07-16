@@ -470,16 +470,19 @@ def handle_client(conn, addr):
                         
                     elif confirm_type == "user":
                         # Normal kullanıcı onayladı - sadece kendisini çıkar
-                        formatted_message = format_system_message(f"{username} odadan ayrıldı.")
-                        broadcast(current_room, formatted_message, conn)
-                        remove_client(conn)
                         
+                        # Önce mesajı gönder
                         goodbye_msg = "Sistem: Odadan başarıyla çıktınız. Bağlantı sonlandırılıyor."
                         if ENCRYPTION_AVAILABLE and cipher:
                             encrypted_goodbye = encrypt_message(goodbye_msg, cipher)
                             conn.send(f"LEAVE_SUCCESS:{encrypted_goodbye}\n".encode('utf-8'))
                         else:
                             conn.send(f"LEAVE_SUCCESS:{goodbye_msg}\n".encode('utf-8'))
+                        
+                        # Sonra broadcast yap ve connection'ı kapat
+                        formatted_message = format_system_message(f"{username} odadan ayrıldı.")
+                        broadcast(current_room, formatted_message, conn)
+                        remove_client(conn)
                         break
                 
                 elif data.startswith("__leave_cancelled__"):
@@ -563,6 +566,7 @@ def start_server(host_ip, port=None):
 # ==============================================================================
 
 stop_thread = False
+pause_input = False  # Ana input döngüsünü geçici olarak durdurmak için
 original_termios_settings = None
 input_lock = threading.Lock()
 current_input = ""
@@ -636,7 +640,7 @@ def redraw_line(message):
         sys.stdout.flush()
 
 def receive_messages(client_socket):
-    global stop_thread, current_client_socket
+    global stop_thread, current_client_socket, pause_input
     current_client_socket = client_socket
     buffer = ""
     pending_leave_confirmation = None
@@ -650,22 +654,41 @@ def receive_messages(client_socket):
             while '\n' in buffer:
                 message, buffer = buffer.split('\n', 1)
                 
+                print(f"DEBUG: Alınan mesaj: '{message[:50]}...' (tip: {message.split(':')[0] if ':' in message else 'unknown'})")  # Debug
+                
                 # Özel mesaj türlerini kontrol et
                 special_result = redraw_line(message)
                 
                 if special_result == "TERMINATE":
+                    pause_input = False  # Input döngüsünü serbest bırak
                     stop_thread = True
                     break
                 elif special_result in ["HOST_LEAVE_CONFIRM", "USER_LEAVE_CONFIRM"]:
                     pending_leave_confirmation = special_result
                     
-                    # Terminal modunu geçici olarak normal yap
-                    restore_terminal()
-                    
-                    # Kullanıcı yanıtını al
+                    # Ana input döngüsü zaten durakladı, onay al
                     try:
                         if sys.stdin.isatty():
-                            response = input().strip().lower()
+                            confirmation_input = ""
+                            sys.stdout.flush()
+                            
+                            while True:
+                                char = sys.stdin.read(1)
+                                if char == '\n' or char == '\r':
+                                    # Enter tuşuna basıldı
+                                    break
+                                elif char == '\x7f':  # Backspace
+                                    if confirmation_input:
+                                        confirmation_input = confirmation_input[:-1]
+                                        sys.stdout.write('\b \b')
+                                        sys.stdout.flush()
+                                else:
+                                    confirmation_input += char
+                                    sys.stdout.write(char)
+                                    sys.stdout.flush()
+                            
+                            response = confirmation_input.strip().lower()
+                            print()  # Yeni satır ekle
                         else:
                             # Pipe modunda otomatik "evet" yanıtı
                             response = "evet"
@@ -674,11 +697,13 @@ def receive_messages(client_socket):
                         if response in ['evet', 'e', 'yes', 'y']:
                             # Onaylandı
                             confirm_type = "host" if special_result == "HOST_LEAVE_CONFIRM" else "user"
-                            client_socket.send(f"__leave_confirmed__:{confirm_type}".encode('utf-8'))
+                            confirm_message = f"__leave_confirmed__:{confirm_type}"
+                            client_socket.send(confirm_message.encode('utf-8'))
                             print("✅ Çıkış onaylandı, işlem gerçekleştiriliyor...")
                         else:
                             # İptal edildi
-                            client_socket.send("__leave_cancelled__:user".encode('utf-8'))
+                            cancel_message = "__leave_cancelled__:user"
+                            client_socket.send(cancel_message.encode('utf-8'))
                             print("❌ Çıkış iptal edildi.")
                     except EOFError:
                         # Pipe modunda EOF hatası geldiğinde otomatik onay
@@ -688,13 +713,14 @@ def receive_messages(client_socket):
                         # Hata durumunda iptal et
                         client_socket.send("__leave_cancelled__:user".encode('utf-8'))
                     
-                    # Terminal modunu tekrar ayarla
-                    setup_terminal()
-                    
-                    # Input line'ı yeniden çiz
+                    # Input durumunu sıfırla ve yeniden çiz
                     with input_lock:
+                        current_input = ""  # Input'u sıfırla
                         sys.stdout.write(f"Siz: {current_input}")
                         sys.stdout.flush()
+                    
+                    # Ana input döngüsünü tekrar başlat
+                    pause_input = False
                     
                     pending_leave_confirmation = None
         except:
@@ -1096,7 +1122,14 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     sys.stdout.flush()
 
     try:
+        global pause_input  # Global tanımlaması en üstte
         while not stop_thread:
+            # Onay işlemi sırasında input'u duraklat
+            if pause_input:
+                import time
+                time.sleep(0.01)  # Daha kısa bekleme
+                continue
+                
             char = sys.stdin.read(1)
             with input_lock:
                 if char == '\n': # Enter
@@ -1105,7 +1138,12 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                     
                     if current_input:
                         # Özel komutları kontrol et
-                        if current_input in ["/leave", "/help", "/users"]:
+                        if current_input == "/leave":
+                            # /leave komutu için özel işlem
+                            client.send(current_input.encode('utf-8'))
+                            # Ana input döngüsünü duraklat ve onay işlemini bekle
+                            pause_input = True
+                        elif current_input in ["/help", "/users"]:
                             # Bu komutlar sunucudan yanıt bekler, direkt gönder
                             client.send(current_input.encode('utf-8'))
                         elif current_input.startswith('/'):
