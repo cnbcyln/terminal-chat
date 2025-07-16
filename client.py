@@ -98,6 +98,10 @@ ENCRYPTION_AVAILABLE = import_with_auto_install()
 
 
 # --- Discord Tarzı Mesaj Formatı ---
+# Her kullanıcının son mesaj zamanını takip et
+last_message_times = {}  # {username: (hour, minute)}
+last_message_user = None  # Son mesajı gönderen kullanıcı
+
 def supports_color():
     """Terminal'in renk desteği olup olmadığını kontrol eder."""
     return (
@@ -107,53 +111,105 @@ def supports_color():
     )
 
 
-def format_discord_message(username, message, is_system=False):
+def format_discord_message(username, message, is_system=False, check_grouping=True):
     """Discord tarzı mesaj formatı oluşturur."""
+    global last_message_times, last_message_user
+    
     now = datetime.now()
+    current_time = (now.hour, now.minute)
     time_str = now.strftime("Bugün saat %H:%M")
+    
+    # Mesaj gruplandırma kontrolü
+    should_group = False
+    if check_grouping and not is_system and username in last_message_times:
+        last_time = last_message_times[username]
+        if last_time == current_time and last_message_user == username:
+            should_group = True
+    
+    # Son mesaj zamanını ve kullanıcıyı güncelle
+    if not is_system:
+        last_message_times[username] = current_time
+        last_message_user = username
     
     # Mesaj satırlarını ayır (uzun mesajlar için)
     message_lines = message.split('\n')
     
-    # Header text
-    header_text = f"{username} - {time_str}"
-    
-    # En uzun satırı bul (header veya mesaj satırları)
-    max_width = max(len(header_text), max(len(line) for line in message_lines))
-    
-    # Minimum genişlik 30 karakter
-    box_width = max(max_width + 4, 30)
-
-    # Terminal renk desteği kontrolü
-    if supports_color():
-        if is_system:
-            # Sistem mesajları gri
-            color = "\033[90m"
+    if should_group:
+        # Aynı dakikada aynı kullanıcıdan mesaj - sadece mesaj satırları ekle
+        # Terminal renk desteği kontrolü
+        if supports_color():
+            color = "\033[94m"  # Normal kullanıcılar mavi
             reset = "\033[0m"
         else:
-            # Normal kullanıcılar mavi
-            color = "\033[94m"
-            reset = "\033[0m"
+            color = ""
+            reset = ""
+        
+        # Önceki alt çizgiyi sil (bir satır yukarı çık ve sil)
+        clear_previous = "\033[A\033[K"
+        
+        # Mesaj genişliği - varsayılan minimum 30 karakter
+        content_width = 26  # 30 - 4 for borders
+        
+        # Mesaj satırları
+        message_lines_formatted = []
+        for line in message_lines:
+            line_padded = line + " " * (content_width - len(line))
+            formatted_line = f"{color}│{reset} {line_padded} {color}│{reset}"
+            message_lines_formatted.append(formatted_line)
+        
+        # Yeni alt çizgi
+        bottom_line = f"{color}╰" + "─" * 28 + f"╯{reset}"
+        
+        # Önceki alt çizgiyi sil + yeni mesaj satırları + yeni alt çizgi
+        result = [clear_previous] + message_lines_formatted + [bottom_line]
+        return "\n".join(result)
+    
     else:
-        color = ""
-        reset = ""
-    
-    # Box çizimi
-    top_line = f"{color}╭─ {header_text} " + "─" * (box_width - len(header_text) - 4) + f"╮{reset}"
-    
-    # Mesaj satırları
-    message_lines_formatted = []
-    for line in message_lines:
-        padding = box_width - len(line) - 2
-        formatted_line = f"{color}│{reset} {line}" + " " * padding + f"{color}│{reset}"
-        message_lines_formatted.append(formatted_line)
-    
-    bottom_line = f"{color}╰" + "─" * (box_width - 2) + f"╯{reset}"
-    
-    # Tüm satırları birleştir
-    result = [top_line] + message_lines_formatted + [bottom_line]
-    
-    return "\n".join(result)
+        # Yeni çerçeve - normal format
+        # Header text
+        header_text = f"{username} - {time_str}"
+        
+        # En uzun satırı bul (header veya mesaj satırları)
+        max_width = max(len(header_text), max(len(line) for line in message_lines))
+        
+        # Minimum genişlik 30 karakter
+        box_width = max(max_width + 4, 30)
+
+        # Terminal renk desteği kontrolü
+        if supports_color():
+            if is_system:
+                # Sistem mesajları gri
+                color = "\033[90m"
+                reset = "\033[0m"
+            else:
+                # Normal kullanıcılar mavi
+                color = "\033[94m"
+                reset = "\033[0m"
+        else:
+            color = ""
+            reset = ""
+        
+        # Box çizimi
+        # Top line: ╭─ header ─────╮ 
+        header_section = f"─ {header_text} "
+        remaining_dashes = box_width - len(header_section) - 2  # -2 for ╭ and ╮
+        top_line = f"{color}╭{header_section}" + "─" * remaining_dashes + f"╮{reset}"
+        
+        # Mesaj satırları
+        message_lines_formatted = []
+        for line in message_lines:
+            # │ message      │ 
+            content_width = box_width - 4  # -4 for │ space space │
+            line_padded = line + " " * (content_width - len(line))
+            formatted_line = f"{color}│{reset} {line_padded} {color}│{reset}"
+            message_lines_formatted.append(formatted_line)
+        
+        bottom_line = f"{color}╰" + "─" * (box_width - 2) + f"╯{reset}"
+        
+        # Tüm satırları birleştir
+        result = [top_line] + message_lines_formatted + [bottom_line]
+        
+        return "\n".join(result)
 
 
 def format_system_message(message):
