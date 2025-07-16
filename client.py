@@ -1,3 +1,38 @@
+"""
+Terminal Chat - Şifrelenmiş Terminal Tabanlı Sohbet Uygulaması
+
+GitHub Repo: https://github.com/cnbcyln/terminal-chat
+
+Hızlı Başlangıç:
+================
+
+1. Sunucu Başlatma (Pipe ile):
+   curl -s https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py | python3 - --host
+   curl -s https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py | python3 - --host 8080
+
+2. Normal Kullanım (Dosya indirme):
+   wget https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py
+   python3 client.py --host                    # Otomatik port
+   python3 client.py --host 8080               # Özel port
+   python3 client.py --connect 192.168.1.100:8080  # Bağlan
+
+Özellikler:
+===========
+- 🔒 AES şifreleme (cryptography)
+- 👥 Çoklu kullanıcı desteği
+- 🏠 Oda sistemi (benzersiz adlar)
+- 🌐 Otomatik IP tespit
+- 🚪 Nazik çıkış sistemi (/leave)
+- 📦 Otomatik bağımlılık yükleme
+
+Komutlar:
+=========
+/help   - Yardım
+/users  - Kullanıcı listesi
+/leave  - Nazik çıkış
+/quit   - Hızlı çıkış
+"""
+
 import socket
 import threading
 import sys
@@ -604,6 +639,14 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     current_client_socket = client
     
+    # Pipe modunda çalışıp çalışmadığını kontrol et
+    if not sys.stdin.isatty():
+        print("❌ İstemci modu pipe ile çalıştırılamaz.")
+        print("💡 İstemci olarak bağlanmak için dosyayı indirip çalıştırın:")
+        print(f"   wget https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py")
+        print(f"   python3 client.py --connect {host_ip}:{port}")
+        return
+    
     try:
         client.connect((host_ip, port))
     except ConnectionRefusedError:
@@ -848,6 +891,23 @@ if __name__ == "__main__":
         print("⚠️  Şifreleme modülü yüklenemedi - Düz metin modu")
     print()
     
+    # Stdin kontrolü - pipe ile çalıştırılıp çalıştırılmadığını kontrol et
+    if not sys.stdin.isatty():
+        print("🔍 Script pipe ile çalıştırılıyor (örn: curl | python3)")
+        print("📋 Bu durumda sadece host modu desteklenir.")
+        print("💡 Normal kullanım için dosyayı indirip çalıştırın:")
+        print("   wget https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py")
+        print("   python3 client.py --host")
+        print()
+        
+        # Eğer --host parametresi verilmişse, host modunda çalıştır
+        if len(sys.argv) >= 2 and sys.argv[1] == '--host':
+            print("🚀 Host modunda başlatılıyor...")
+        else:
+            print("❌ Pipe modunda sadece --host kullanılabilir.")
+            print("Kullanım: curl -s https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py | python3 - --host [port]")
+            sys.exit(1)
+    
     if len(sys.argv) == 2 and sys.argv[1] == '--host':
         # Sunucu olarak çalıştır (otomatik port)
         host_ip = '0.0.0.0' # Diğerlerinin bağlanabilmesi için tüm arayüzleri dinle
@@ -876,12 +936,27 @@ if __name__ == "__main__":
         print(f"📡 Yerel IP adresiniz: {local_ip}")
         print(f"🌐 Diğer kullanıcılar şu komutla bağlanabilir:")
         print(f"   python3 client.py --connect {local_ip}:{selected_port}")
-        #print()
         
         # Sunucuyu başlatan kişi aynı zamanda bir istemci olarak kendisine bağlanır
-        print("🔗 Kendi sunucunuza istemci olarak bağlanılıyor...")
-        print()
-        start_client('127.0.0.1', selected_port, show_welcome=False)
+        # Pipe modunda istemci çalıştırma
+        if sys.stdin.isatty():
+            print("🔗 Kendi sunucunuza istemci olarak bağlanılıyor...")
+            print()
+            start_client('127.0.0.1', selected_port, show_welcome=False)
+        else:
+            print("📋 Pipe modunda çalıştığınız için istemci modu devre dışı.")
+            print("🌐 İstemci olarak bağlanmak için başka bir terminal açın:")
+            print(f"   python3 client.py --connect {local_ip}:{selected_port}")
+            print("\n⏹️  Sunucuyu durdurmak için Ctrl+C tuşlayın.")
+            
+            # Sunucu çalışmaya devam etsin
+            try:
+                while True:
+                    import time
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\n🛑 Sunucu durduruluyor...")
+                sys.exit(0)
 
     elif len(sys.argv) == 3 and sys.argv[1] == '--host':
         # Sunucu olarak çalıştır (belirtilen port)
@@ -926,9 +1001,25 @@ if __name__ == "__main__":
         print(f"   python3 client.py --connect {local_ip}:{selected_port}")
         
         # Sunucuyu başlatan kişi aynı zamanda bir istemci olarak kendisine bağlanır
-        print("🔗 Kendi sunucunuza istemci olarak bağlanılıyor...")
-        print()
-        start_client('127.0.0.1', selected_port, show_welcome=False)
+        # Pipe modunda istemci çalıştırma
+        if sys.stdin.isatty():
+            print("🔗 Kendi sunucunuza istemci olarak bağlanılıyor...")
+            print()
+            start_client('127.0.0.1', selected_port, show_welcome=False)
+        else:
+            print("📋 Pipe modunda çalıştığınız için istemci modu devre dışı.")
+            print("🌐 İstemci olarak bağlanmak için başka bir terminal açın:")
+            print(f"   python3 client.py --connect {local_ip}:{selected_port}")
+            print("\n⏹️  Sunucuyu durdurmak için Ctrl+C tuşlayın.")
+            
+            # Sunucu çalışmaya devam etsin
+            try:
+                while True:
+                    import time
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\n🛑 Sunucu durduruluyor...")
+                sys.exit(0)
 
     elif len(sys.argv) == 3 and sys.argv[1] == '--connect':
         # İstemci olarak bir sunucuya bağlan
