@@ -111,28 +111,49 @@ def format_discord_message(username, message, is_system=False):
     """Discord tarzı mesaj formatı oluşturur."""
     now = datetime.now()
     time_str = now.strftime("Bugün saat %H:%M")
+    
+    # Mesaj satırlarını ayır (uzun mesajlar için)
+    message_lines = message.split('\n')
+    
+    # Header text
+    header_text = f"{username} - {time_str}"
+    
+    # En uzun satırı bul (header veya mesaj satırları)
+    max_width = max(len(header_text), max(len(line) for line in message_lines))
+    
+    # Minimum genişlik 30 karakter
+    box_width = max(max_width + 4, 30)
 
     # Terminal renk desteği kontrolü
     if supports_color():
-        # Renkli versiyon
         if is_system:
             # Sistem mesajları gri
-            username_line = f"\033[90m{username} {time_str}\033[0m"
-            message_line = f"\033[90m{message}\033[0m"
+            color = "\033[90m"
+            reset = "\033[0m"
         else:
             # Normal kullanıcılar mavi
-            username_line = f"\033[94m{username}\033[0m \033[90m{time_str}\033[0m"
-            message_line = f"{message}"
+            color = "\033[94m"
+            reset = "\033[0m"
     else:
-        # Renksiz versiyon (fallback)
-        if is_system:
-            username_line = f"{username} {time_str}"
-            message_line = f"{message}"
-        else:
-            username_line = f"{username} {time_str}"
-            message_line = f"{message}"
-
-    return f"{username_line}\n{message_line}"
+        color = ""
+        reset = ""
+    
+    # Box çizimi
+    top_line = f"{color}╭─ {header_text} " + "─" * (box_width - len(header_text) - 4) + f"╮{reset}"
+    
+    # Mesaj satırları
+    message_lines_formatted = []
+    for line in message_lines:
+        padding = box_width - len(line) - 2
+        formatted_line = f"{color}│{reset} {line}" + " " * padding + f"{color}│{reset}"
+        message_lines_formatted.append(formatted_line)
+    
+    bottom_line = f"{color}╰" + "─" * (box_width - 2) + f"╯{reset}"
+    
+    # Tüm satırları birleştir
+    result = [top_line] + message_lines_formatted + [bottom_line]
+    
+    return "\n".join(result)
 
 
 def format_system_message(message):
