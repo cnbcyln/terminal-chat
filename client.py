@@ -689,6 +689,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
         choice = input("1. Yeni Oda Oluştur\n2. Odaya Katıl\n> ")
     
     current_room_id = None  # Odaya katılım için room_id'yi sakla
+    join_room_id = None  # Username retry için room_id'yi sakla
     username = username if is_pipe_mode else None
     
     if choice == '1':
@@ -732,6 +733,8 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                             continue  # while döngüsünün başına dön
                         elif sub_choice == '2':
                             # Mevcut odaya katıl
+                            current_room_id = existing_room_id  # room_id'yi aktarma için set et
+                            join_room_id = existing_room_id  # Username retry için room_id'yi sakla
                             username = safe_input("Kullanıcı adınız: ", f"User_{random.randint(1000, 9999)}", is_pipe_mode)
                             client.send(f"__join_room__:{existing_room_id}:{username}".encode('utf-8'))
                             break  # while döngüsünden çık
@@ -772,6 +775,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                 print()
                 
                 # Oda mevcut, kullanıcı adını sor
+                join_room_id = current_room_id  # Username retry için room_id'yi sakla
                 username = safe_input("Kullanıcı adınız: ", f"User_{random.randint(1000, 9999)}", is_pipe_mode)
                 client.send(f"__join_room__:{current_room_id}:{username}".encode('utf-8'))
                 
@@ -810,6 +814,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     final_username = username
     room_id = None
     room_name = None
+    join_room_id = None  # Join işlemi için kullanılan room ID'yi sakla
     
     # Sadece normal join işlemleri için yanıt bekle (oda kontrolü zaten yapıldı)
     if (choice == '1' and username) or (choice == '2' and username):  # Başarılı oda oluşturma veya oda katılımı
@@ -837,8 +842,11 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                         else:
                             new_username = safe_input("Yeni kullanıcı adınız: ", f"User_{random.randint(1000, 9999)}", is_pipe_mode)
                     
+                    # Room ID'yi belirle (mevcut room_id veya current_room_id)
+                    retry_room_id = join_room_id or current_room_id
+                    
                     # Tekrar deneme - room_id'yi kullan
-                    client.send(f"__join_with_new_username__:{current_room_id}:{new_username}".encode('utf-8'))
+                    client.send(f"__join_with_new_username__:{retry_room_id}:{new_username}".encode('utf-8'))
                     
                 elif "JOIN_ERROR" in response:
                     error_msg = response.split(':', 1)[1]
