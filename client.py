@@ -1150,6 +1150,19 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                 print("📭 Şu anda hiç aktif oda bulunmuyor.")
                 if not is_pipe_mode:
                     print("💡 Yeni bir oda oluşturarak sohbete başlayabilirsiniz!")
+                    print("\nAna menüye dönmek için herhangi bir tuşa basın...")
+                    input()
+                    client.close()
+                    return "RETURN_TO_MENU"
+                else:
+                    # Pipe modunda otomatik oda oluştur
+                    choice = "1"
+                    room_name_req = f"Demo_Oda_{random.randint(100, 999)}"
+                    username = f"Host_{random.randint(1000, 9999)}"
+                    print(f"📝 Oda adı: '{room_name_req}'")
+                    print(f"👤 Kullanıcı adı: '{username}'")
+                    client.send(f"__create_room__:{room_name_req}:{username}".encode("utf-8"))
+                    
             elif room_list_response.startswith("ROOM_LIST:"):
                 _, rooms_data = room_list_response.split(":", 1)
                 if rooms_data:
@@ -1158,44 +1171,99 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                     print("=" * 50)
                     for i, room_entry in enumerate(room_entries, 1):
                         room_name, room_id, user_count = room_entry.split(":", 2)
-                        print(f"{i}. 📝 {room_name}")
+                        print(f"{i}. 📝 Oda Adı: {room_name}")
                         print(f"   🆔 ID: {room_id}")
                         print(f"   👥 Kullanıcı: {user_count}")
                         print("-" * 30)
 
                     if not is_pipe_mode:
-                        print("\n💡 Bir odaya katılmak için seçenek 2'yi kullanın!")
+                        # Kullanıcıya oda seçimi sun
+                        print("\n💡 Seçenekleriniz:")
+                        print("1. Oda adı yazarak katıl")
+                        print("2. Ana menüye dön")
+                        
+                        user_choice = safe_input("\n> ", "2", is_pipe_mode)
+                        
+                        if user_choice == "1":
+                            # Oda adı ile katılma işlemi
+                            room_name_to_join = safe_input("Katılmak istediğiniz oda adı: ", "", is_pipe_mode)
+                            if room_name_to_join.strip():
+                                # Oda katılma işlemini başlat
+                                print("🔍 Oda kontrol ediliyor...")
+                                client.send(f"__check_room_name__:{room_name_to_join}".encode("utf-8"))
+                                
+                                try:
+                                    room_check_response = client.recv(1024).decode("utf-8").strip()
+                                    
+                                    if room_check_response.startswith("ROOM_NAME_EXISTS"):
+                                        _, existing_room_name, existing_room_id, user_count = room_check_response.split(":", 3)
+                                        print(f"✅ Oda bulundu!")
+                                        print(f"📝 Oda adı: '{existing_room_name}'")
+                                        print(f"👥 Aktif kullanıcı sayısı: {user_count}")
+                                        print()
+                                        
+                                        username = safe_input("Kullanıcı adınız: ", f"User_{random.randint(1000, 9999)}", is_pipe_mode)
+                                        client.send(f"__join_room__:{existing_room_id}:{username}".encode("utf-8"))
+                                        current_room_id = existing_room_id
+                                        join_room_id = existing_room_id
+                                        choice = "2"  # Katılım işlemine devam et
+                                    else:
+                                        print(f"❌ '{room_name_to_join}' adında oda bulunamadı!")
+                                        print("\nAna menüye dönülüyor...")
+                                        client.close()
+                                        return "RETURN_TO_MENU"
+                                        
+                                except Exception as e:
+                                    print(f"Oda kontrol hatası: {e}")
+                                    client.close()
+                                    return "RETURN_TO_MENU"
+                            else:
+                                print("❌ Geçersiz oda adı!")
+                                print("\nAna menüye dönülüyor...")
+                                client.close()
+                                return "RETURN_TO_MENU"
+                        else:
+                            # Ana menüye dön
+                            print("📱 Ana menüye dönülüyor...")
+                            client.close()
+                            return "RETURN_TO_MENU"
+                    else:
+                        # Pipe modunda otomatik oda oluştur
+                        choice = "1"
+                        room_name_req = f"Demo_Oda_{random.randint(100, 999)}"
+                        username = f"Host_{random.randint(1000, 9999)}"
+                        print(f"📝 Oda adı: '{room_name_req}'")
+                        print(f"👤 Kullanıcı adı: '{username}'")
+                        client.send(f"__create_room__:{room_name_req}:{username}".encode("utf-8"))
                 else:
                     print("📭 Şu anda hiç aktif oda bulunmuyor.")
+                    if not is_pipe_mode:
+                        print("\nAna menüye dönmek için herhangi bir tuşa basın...")
+                        input()
+                        client.close()
+                        return "RETURN_TO_MENU"
+                    else:
+                        # Pipe modunda otomatik oda oluştur
+                        choice = "1"
+                        room_name_req = f"Demo_Oda_{random.randint(100, 999)}"
+                        username = f"Host_{random.randint(1000, 9999)}"
+                        print(f"📝 Oda adı: '{room_name_req}'")
+                        print(f"👤 Kullanıcı adı: '{username}'")
+                        client.send(f"__create_room__:{room_name_req}:{username}".encode("utf-8"))
             else:
                 print(f"Beklenmeyen sunucu yanıtı: {room_list_response}")
-
-            if not is_pipe_mode:
-                print("\nAna menüye dönmek için herhangi bir tuşa basın...")
-                input()
-                client.close()
-                # Ana menüye geri dön - yeniden başlat
-                start_client(host_ip, port, show_welcome=True)
-                return
-            else:
-                print("Pipe modunda otomatik oda oluşturuluyor...")
-                # Pipe modunda oda listesi gösterdikten sonra otomatik oda oluştur
-                choice = "1"
-                room_name_req = f"Demo_Oda_{random.randint(100, 999)}"
-                username = f"Host_{random.randint(1000, 9999)}"
-                print(f"📝 Oda adı: '{room_name_req}'")
-                print(f"👤 Kullanıcı adı: '{username}'")
-                client.send(
-                    f"__create_room__:{room_name_req}:{username}".encode("utf-8")
-                )
-                # Continue to response handling instead of return
+                if not is_pipe_mode:
+                    print("\nAna menüye dönmek için herhangi bir tuşa basın...")
+                    input()
+                    client.close()
+                    return "RETURN_TO_MENU"
 
         except Exception as e:
             print(f"Oda listesi hatası: {e}")
             client.close()
             if not is_pipe_mode:
-                # Ana menüye geri dön - yeniden başlat
-                start_client(host_ip, port, show_welcome=True)
+                client.close()
+                return "RETURN_TO_MENU"
             return
 
     else:
