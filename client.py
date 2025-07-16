@@ -43,6 +43,7 @@ import random
 import string
 import base64
 import subprocess
+from datetime import datetime
 
 # --- Otomatik Modül Yükleme Sistemi ---
 def install_package(package_name):
@@ -85,6 +86,42 @@ def import_with_auto_install():
 
 # Modülleri yükle
 ENCRYPTION_AVAILABLE = import_with_auto_install()
+
+# --- Discord Tarzı Mesaj Formatı ---
+def supports_color():
+    """Terminal'in renk desteği olup olmadığını kontrol eder."""
+    return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty() and os.getenv('TERM') != 'dumb'
+
+def format_discord_message(username, message, is_system=False):
+    """Discord tarzı mesaj formatı oluşturur."""
+    now = datetime.now()
+    time_str = now.strftime("Bugün saat %H:%M")
+    
+    # Terminal renk desteği kontrolü
+    if supports_color():
+        # Renkli versiyon
+        if is_system:
+            # Sistem mesajları gri
+            username_line = f"\033[90m{username} {time_str}\033[0m"
+            message_line = f"\033[90m{message}\033[0m"
+        else:
+            # Normal kullanıcılar mavi
+            username_line = f"\033[94m{username}\033[0m \033[90m{time_str}\033[0m"
+            message_line = f"{message}"
+    else:
+        # Renksiz versiyon (fallback)
+        if is_system:
+            username_line = f"[{username}] {time_str}"
+            message_line = f"{message}"
+        else:
+            username_line = f"{username} {time_str}"
+            message_line = f"{message}"
+    
+    return f"{username_line}\n{message_line}"
+
+def format_system_message(message):
+    """Sistem mesajları için özel format."""
+    return format_discord_message("Sistem", message, is_system=True)
 
 # --- Ortak Ayarlar ---
 DEFAULT_PORT = 12345
@@ -241,7 +278,8 @@ def remove_client(conn):
                     print(f"Sunucu sahibi {username} odadan ayrıldı.")
 
             else:
-                broadcast(room_id, f"Sistem: {username} odadan ayrıldı.", None)
+                formatted_message = format_system_message(f"{username} odadan ayrıldı.")
+                broadcast(room_id, formatted_message, None)
             break
     conn.close()
 
@@ -297,7 +335,8 @@ def handle_client(conn, addr):
                         username = final_username
                         cipher = rooms[room_id]["cipher"]
                         conn.send(f"JOIN_SUCCESS:{room_id}:{rooms[room_id]['name']}:{final_username}\n".encode('utf-8'))
-                        broadcast(current_room, f"Sistem: {username} odaya katıldı.", conn)
+                        formatted_message = format_system_message(f"{username} odaya katıldı.")
+                        broadcast(current_room, formatted_message, conn)
                     else:
                         # Kullanıcı adı zaten mevcut, alternatif öner
                         suggested_username = suggest_alternative_username(room_id, req_username)
@@ -344,7 +383,8 @@ def handle_client(conn, addr):
                         username = new_username
                         cipher = rooms[room_id]["cipher"]
                         conn.send(f"JOIN_SUCCESS:{room_id}:{rooms[room_id]['name']}:{new_username}\n".encode('utf-8'))
-                        broadcast(current_room, f"Sistem: {username} odaya katıldı.", conn)
+                        formatted_message = format_system_message(f"{username} odaya katıldı.")
+                        broadcast(current_room, formatted_message, conn)
                     else:
                         # Hala mevcut, yeni alternatif öner
                         suggested_username = suggest_alternative_username(room_id, new_username)
@@ -385,7 +425,8 @@ def handle_client(conn, addr):
                         # Oda sahibi onayladı - tüm odayı kapat
                         if current_room in rooms:
                             # Önce diğer kullanıcılara haber ver
-                            broadcast(current_room, f"Sistem: Oda sahibi {username} odayı kapattı. Tüm kullanıcılar çıkarılıyor.", conn)
+                            formatted_message = format_system_message(f"Oda sahibi {username} odayı kapattı. Tüm kullanıcılar çıkarılıyor.")
+                            broadcast(current_room, formatted_message, conn)
                             
                             # Tüm kullanıcıları çıkar
                             for client_conn in list(rooms[current_room]["clients"]):
@@ -416,7 +457,8 @@ def handle_client(conn, addr):
                         
                     elif confirm_type == "user":
                         # Normal kullanıcı onayladı - sadece kendisini çıkar
-                        broadcast(current_room, f"Sistem: {username} odadan ayrıldı.", conn)
+                        formatted_message = format_system_message(f"{username} odadan ayrıldı.")
+                        broadcast(current_room, formatted_message, conn)
                         remove_client(conn)
                         
                         goodbye_msg = "Sistem: Odadan başarıyla çıktınız. Bağlantı sonlandırılıyor."
@@ -429,7 +471,7 @@ def handle_client(conn, addr):
                 
                 elif data.startswith("__leave_cancelled__"):
                     # Çıkış iptal edildi
-                    cancel_msg = "Sistem: Odadan çıkış iptal edildi."
+                    cancel_msg = format_system_message("Odadan çıkış iptal edildi.")
                     if ENCRYPTION_AVAILABLE and cipher:
                         encrypted_cancel = encrypt_message(cancel_msg, cipher)
                         conn.send(f"{encrypted_cancel}\n".encode('utf-8'))
@@ -438,7 +480,7 @@ def handle_client(conn, addr):
                 
                 elif data == "/users":
                     user_list = ", ".join(rooms[current_room]["usernames"].values())
-                    response_message = f"Sistem: Odadaki kullanıcılar: {user_list}"
+                    response_message = format_system_message(f"Odadaki kullanıcılar: {user_list}")
                     if ENCRYPTION_AVAILABLE and cipher:
                         encrypted_response = encrypt_message(response_message, cipher)
                         conn.send(f"{encrypted_response}\n".encode('utf-8'))
@@ -446,7 +488,7 @@ def handle_client(conn, addr):
                         conn.send(f"{response_message}\n".encode('utf-8'))
 
                 elif data == "/help":
-                    response_message = "Sistem: Kullanılabilir komutlar: /users, /leave, /quit, /help"
+                    response_message = format_system_message("Kullanılabilir komutlar: /users, /leave, /quit, /help")
                     if ENCRYPTION_AVAILABLE and cipher:
                         encrypted_response = encrypt_message(response_message, cipher)
                         conn.send(f"{encrypted_response}\n".encode('utf-8'))
@@ -458,12 +500,15 @@ def handle_client(conn, addr):
                     if ENCRYPTION_AVAILABLE and cipher:
                         try:
                             decrypted_message = decrypt_message(data, cipher)
-                            broadcast(current_room, f"{username}: {decrypted_message}", conn)
+                            formatted_message = format_discord_message(username, decrypted_message)
+                            broadcast(current_room, formatted_message, conn)
                         except Exception:
                             # Şifre çözülemezse orijinal mesajı kullan
-                            broadcast(current_room, f"{username}: {data}", conn)
+                            formatted_message = format_discord_message(username, data)
+                            broadcast(current_room, formatted_message, conn)
                     else:
-                        broadcast(current_room, f"{username}: {data}", conn)
+                        formatted_message = format_discord_message(username, data)
+                        broadcast(current_room, formatted_message, conn)
     
     except (ConnectionResetError, UnicodeDecodeError):
         pass
@@ -926,8 +971,8 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                             else:
                                 client.send(current_input.encode('utf-8'))
                             
-                            # Sadece normal mesajlar için echo yap
-                            my_message = f"{username}: {current_input}"
+                            # Sadece normal mesajlar için echo yap (Discord formatı)
+                            my_message = format_discord_message(username, current_input)
                             sys.stdout.write('\r\x1b[K' + my_message + '\n')
 
                     current_input = ""
