@@ -126,7 +126,7 @@ def format_discord_message(username, message, is_system=False):
     else:
         # Renksiz versiyon (fallback)
         if is_system:
-            username_line = f"[{username}] {time_str}"
+            username_line = f"{username} {time_str}"
             message_line = f"{message}"
         else:
             username_line = f"{username} {time_str}"
@@ -715,7 +715,7 @@ def redraw_line(message):
             else:
                 decoded_content = content
 
-            sys.stdout.write("\r\x1bK" + decoded_content + "\n")
+            sys.stdout.write("\r\x1b[K" + decoded_content + "\n")
             sys.stdout.write("Yanıtınız (evet/hayır): ")
             sys.stdout.flush()
             return msg_type  # Özel handling gerekiyor
@@ -730,7 +730,7 @@ def redraw_line(message):
             else:
                 decoded_content = content
 
-            sys.stdout.write("\r\x1bK" + decoded_content + "\n")
+            sys.stdout.write("\r\x1b[K" + decoded_content + "\n")
             if message.startswith("ROOM_CLOSED:"):
                 sys.stdout.write("Çıkmak için herhangi bir tuşa basın...")
             else:
@@ -748,11 +748,11 @@ def redraw_line(message):
         ):
             try:
                 decrypted_message = decrypt_message(message, client_cipher)
-                sys.stdout.write("\r\x1bK" + decrypted_message + "\n")
+                sys.stdout.write("\r\x1b[K" + decrypted_message + "\n")
             except Exception:
-                sys.stdout.write("\r\x1bK" + message + "\n")
+                sys.stdout.write("\r\x1b[K" + message + "\n")
         else:
-            sys.stdout.write("\r\x1bK" + message + "\n")
+            sys.stdout.write("\r\x1b[K" + message + "\n")
 
         sys.stdout.write(f"Siz: {current_input}")
         sys.stdout.flush()
@@ -1440,7 +1440,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                         elif current_input.startswith("/"):
                             # Bilinmeyen komutlar
                             sys.stdout.write(
-                                "\r\x1bK"
+                                "\r\x1b[K"
                                 + f"Bilinmeyen komut: {current_input}. /help yazarak yardım alabilirsiniz.\n"
                             )
                         else:
@@ -1455,7 +1455,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
 
                             # Sadece normal mesajlar için echo yap (Discord formatı)
                             my_message = format_discord_message(username, current_input)
-                            sys.stdout.write("\r\x1bK" + my_message + "\n")
+                            sys.stdout.write("\r\x1b[K" + my_message + "\n")
 
                     current_input = ""
                     sys.stdout.write(f"Siz: {current_input}")
@@ -1463,7 +1463,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
 
                 elif char == "\x7f":  # Backspace
                     current_input = current_input[:-1]
-                    sys.stdout.write("\r\x1bK" + f"Siz: {current_input}")
+                    sys.stdout.write("\r\x1b[K" + f"Siz: {current_input}")
                     sys.stdout.flush()
                 else:
                     current_input += char
