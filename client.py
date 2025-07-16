@@ -567,6 +567,7 @@ def start_server(host_ip, port=None):
 
 stop_thread = False
 pause_input = False  # Ana input döngüsünü geçici olarak durdurmak için
+left_via_leave = False  # /leave komutu ile çıkış yapıldı mı?
 original_termios_settings = None
 input_lock = threading.Lock()
 current_input = ""
@@ -640,7 +641,7 @@ def redraw_line(message):
         sys.stdout.flush()
 
 def receive_messages(client_socket):
-    global stop_thread, current_client_socket, pause_input
+    global stop_thread, current_client_socket, pause_input, left_via_leave
     current_client_socket = client_socket
     buffer = ""
     pending_leave_confirmation = None
@@ -654,12 +655,12 @@ def receive_messages(client_socket):
             while '\n' in buffer:
                 message, buffer = buffer.split('\n', 1)
                 
-                print(f"DEBUG: Alınan mesaj: '{message[:50]}...' (tip: {message.split(':')[0] if ':' in message else 'unknown'})")  # Debug
-                
                 # Özel mesaj türlerini kontrol et
                 special_result = redraw_line(message)
                 
                 if special_result == "TERMINATE":
+                    global left_via_leave
+                    left_via_leave = True  # /leave ile çıkış yapıldı
                     pause_input = False  # Input döngüsünü serbest bırak
                     stop_thread = True
                     break
@@ -739,7 +740,14 @@ def safe_input(prompt, default="", is_pipe_mode=False):
 
 def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     """İstemciyi başlatır ve sunucuya bağlar."""
-    global stop_thread, current_input, client_cipher, current_client_socket
+    global stop_thread, current_input, client_cipher, current_client_socket, pause_input, left_via_leave
+    
+    # Global değişkenleri sıfırla
+    stop_thread = False
+    pause_input = False
+    left_via_leave = False
+    current_input = ""
+    
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     current_client_socket = client
     
@@ -1182,6 +1190,15 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
         except: pass
         client.close()
         print("\nBağlantı sonlandırıldı.")
+        
+        # /leave ile çıkış yapıldıysa ana menüye dön
+        global left_via_leave
+        if left_via_leave and not is_pipe_mode:
+            print("\nAna menüye dönülüyor...")
+            # Global değişkenleri sıfırla
+            left_via_leave = False
+            # Ana menüye geri dön - yeniden başlat
+            start_client(host_ip, port, show_welcome=True)
 
 # ==============================================================================
 # ANA ÇALIŞTIRMA BLOĞU
