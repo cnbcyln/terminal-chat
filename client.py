@@ -742,6 +742,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     # --- Başlangıç Ayarları ---
     if show_welcome:
         #clear_screen()
+        print()
         print("Terminal Chat'e Hoş Geldiniz!")
     
     # Pipe modunda otomatik oda oluştur
@@ -1080,7 +1081,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     print("   /help   - Komut listesini göster")
     print("   /users  - Odadaki kullanıcıları listele")
     print("   /leave  - Odadan çık (onay ister)")
-    print("   /quit   - Anında çık")
+    print("   /quit   - Uygulamayı kapat")
     print()
     
     # final_username'i username'e ata
