@@ -754,7 +754,7 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
         print(f"👤 Kullanıcı adı: '{username}'")
         print()
     else:
-        choice = input("1. Yeni Oda Oluştur\n2. Mevcut Odaya Katıl (Oda Adı ile)\n3. Oda Listesi\n> ")
+        choice = input("1. Yeni Oda Oluştur\n2. Odaya Katıl\n3. Oda Listesi\n> ")
     
     current_room_id = None  # Odaya katılım için room_id'yi sakla
     join_room_id = None  # Username retry için room_id'yi sakla
