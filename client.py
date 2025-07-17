@@ -55,6 +55,9 @@ try:
 except ImportError:
     pyobjc_available = False
 
+win_toast_available = False  # Global olarak başlat
+ToastNotifier = None
+
 # --- Otomatik Modül Yükleme Sistemi ---
 def install_package(package_name):
     """Eksik paketi otomatik olarak yükler."""
@@ -71,8 +74,10 @@ def install_package(package_name):
 
 def import_with_auto_install():
     """Gerekli modülleri yükleyip import eder."""
-    global Fernet, hashes, PBKDF2HMAC, NSApplication, pyobjc_available
+    global Fernet, hashes, PBKDF2HMAC, NSApplication, pyobjc_available, win_toast_available, ToastNotifier
     pyobjc_available = False
+    win_toast_available = False
+    ToastNotifier = None
 
     # cryptography modülünü dene
     try:
@@ -118,6 +123,30 @@ def import_with_auto_install():
                 pyobjc_available = False
     else:
         pyobjc_available = False
+
+    # win10toast modülünü dene (sadece Windows için)
+    if sys.platform == "win32":
+        try:
+            win10toast_mod = importlib.import_module("win10toast")
+            ToastNotifier = win10toast_mod.ToastNotifier
+            win_toast_available = True
+        except ImportError:
+            print("⚠️  win10toast modülü bulunamadı. Bildirim için yükleniyor...")
+            if install_package("win10toast"):
+                try:
+                    win10toast_mod = importlib.import_module("win10toast")
+                    ToastNotifier = win10toast_mod.ToastNotifier
+                    win_toast_available = True
+                    print("✅ win10toast başarıyla yüklendi!")
+                except ImportError:
+                    print("❌ win10toast yüklenemedi. Bildirim devre dışı.")
+                    win_toast_available = False
+            else:
+                print("❌ win10toast yüklenemedi. Bildirim devre dışı.")
+                win_toast_available = False
+    else:
+        win_toast_available = False
+        ToastNotifier = None
 
     return True
 
@@ -863,6 +892,29 @@ def redraw_line(message):
                                             NSApplication.sharedApplication().requestUserAttention_(0)
                                         except Exception:
                                             pass
+                            is_windows = sys.platform == "win32"
+                            if is_windows:
+                                if win_toast_available and ToastNotifier is not None:
+                                    try:
+                                        toast = ToastNotifier()
+                                        toast.show_toast(msg_username, msg_content, duration=10)
+                                    except Exception:
+                                        pass
+                                try:
+                                    import ctypes
+                                    hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+                                    if hwnd:
+                                        FLASHW_ALL = 3
+                                        class FLASHWINFO(ctypes.Structure):
+                                            _fields_ = [("cbSize", ctypes.c_uint),
+                                                        ("hwnd", ctypes.c_void_p),
+                                                        ("dwFlags", ctypes.c_uint),
+                                                        ("uCount", ctypes.c_uint),
+                                                        ("dwTimeout", ctypes.c_uint)]
+                                        flash = FLASHWINFO(ctypes.sizeof(FLASHWINFO), hwnd, FLASHW_ALL, 3, 0)
+                                        ctypes.windll.user32.FlashWindowEx(ctypes.byref(flash))
+                                except Exception as e:
+                                    print("Görev çubuğu flash hatası:", e)
                         except Exception:
                             pass
                 else:
