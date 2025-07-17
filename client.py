@@ -856,7 +856,14 @@ def redraw_line(message):
                                 # Eğer terminal ön planda değilse bildirim ve dock bounce
                                 if not (term_app and term_app in frontmost):
                                     # Bildirim gönder
-                                    subprocess.Popen(["osascript", "-e", f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'])
+                                    try:
+                                        subprocess.Popen([
+                                            "osascript", "-e",
+                                            f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'
+                                        ])
+                                    except Exception as e:
+                                        print("Bildirim hatası:", e)
+
                                     # Dock ikonunu zıplat (pyobjc)
                                     if pyobjc_available:
                                         try:
@@ -882,12 +889,13 @@ def redraw_line(message):
                                 script = f'tell application "System Events" to get name of first application process whose frontmost is true'
                                 frontmost = subprocess.check_output(["osascript", "-e", script]).decode().strip()
                                 if not (term_app and term_app in frontmost):
-                                    subprocess.Popen(["osascript", "-e", f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'])
-                                    if pyobjc_available:
-                                        try:
-                                            NSApplication.sharedApplication().requestUserAttention_(0)
-                                        except Exception:
-                                            pass
+                                    try:
+                                        subprocess.Popen([
+                                            "osascript", "-e",
+                                            f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'
+                                        ])
+                                    except Exception as e:
+                                        print("Bildirim hatası:", e)
                         except Exception:
                             pass
                 else:
