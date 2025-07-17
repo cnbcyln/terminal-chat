@@ -204,7 +204,7 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
             # │ message      │ 
             content_width = box_width - 4  # -4 for │ space space │
             line_padded = line + " " * (content_width - len(line))
-            formatted_line = f"{color}│{reset} {line_padded} {color}│{reset}"
+            formatted_line = f"{color}│{reset} {line.ljust(content_width)}{color}│{reset}"
             message_lines_formatted.append(formatted_line)
         
         bottom_line = f"{color}╰" + "─" * (box_width - 2) + f"╯{reset}"
