@@ -45,7 +45,6 @@ import base64
 import subprocess
 from datetime import datetime
 
-
 # --- Otomatik Modül Yükleme Sistemi ---
 def install_package(package_name):
     """Eksik paketi otomatik olarak yükler."""
@@ -55,9 +54,7 @@ def install_package(package_name):
         print(f"✅ {package_name} başarıyla yüklendi!")
         return True
     except subprocess.CalledProcessError:
-        print(
-            f"❌ {package_name} yüklenirken hata oluştu. Manuel olarak yüklemeyi deneyin:"
-        )
+        print(f"❌ {package_name} yüklenirken hata oluştu. Manuel olarak yüklemeyi deneyin:")
         print(f"   pip install {package_name}")
         return False
 
@@ -83,31 +80,22 @@ def import_with_auto_install():
 
                 print("🔒 Şifreleme modülleri başarıyla yüklendi.")
             except ImportError:
-                print(
-                    "❌ Şifreleme modülleri yüklenemedi. Program şifreleme olmadan çalışacak."
-                )
+                print("❌ Şifreleme modülleri yüklenemedi. Program şifreleme olmadan çalışacak.")
                 return False
         else:
             print("❌ Otomatik yükleme başarısız. Program şifreleme olmadan çalışacak.")
             return False
     return True
 
-
 # Modülleri yükle
 ENCRYPTION_AVAILABLE = import_with_auto_install()
-
 
 # --- Discord Tarzı Mesaj Formatı ---
 # Mesaj gruplandırma artık oda bazında tutulacak (global değişkenler kaldırıldı)
 
 def supports_color():
     """Terminal'in renk desteği olup olmadığını kontrol eder."""
-    return (
-        hasattr(sys.stdout, "isatty")
-        and sys.stdout.isatty()
-        and os.getenv("TERM") != "dumb"
-    )
-
+    return (hasattr(sys.stdout, "isatty") and sys.stdout.isatty() and os.getenv("TERM") != "dumb")
 
 def format_discord_message(username, message, room_data=None, is_system=False, check_grouping=True):
     """Discord tarzı mesaj formatı oluşturur."""
@@ -148,7 +136,7 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
             reset = ""
         
         # Önceki alt çizgiyi sil (bir satır yukarı çık ve sil)
-        clear_previous = "\033[A\033[K"
+        clear_previous = "\033[A\033[K\033[A"
         
         # Mesaj genişliği - varsayılan minimum 30 karakter
         content_width = 26  # 30 - 4 for borders
@@ -157,7 +145,7 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
         message_lines_formatted = []
         for line in message_lines:
             line_padded = line + " " * (content_width - len(line))
-            formatted_line = f"{color}│{reset} {line.ljust(content_width)}{color}│{reset}"
+            formatted_line = f"{color}│{reset} {line_padded} {color}│{reset}"
             message_lines_formatted.append(formatted_line)
         
         # Yeni alt çizgi
@@ -204,7 +192,7 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
             # │ message      │ 
             content_width = box_width - 4  # -4 for │ space space │
             line_padded = line + " " * (content_width - len(line))
-            formatted_line = f"{color}│{reset} {line.ljust(content_width)}{color}│{reset}"
+            formatted_line = f"{color}│{reset} {line_padded} {color}│{reset}"
             message_lines_formatted.append(formatted_line)
         
         bottom_line = f"{color}╰" + "─" * (box_width - 2) + f"╯{reset}"
@@ -214,16 +202,13 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
         
         return "\n".join(result)
 
-
 def format_system_message(message):
     """Sistem mesajları için özel format."""
     return format_discord_message("Sistem", message, room_data=None, is_system=True)
 
-
 # --- Ortak Ayarlar ---
 DEFAULT_PORT = 12345
 SERVER_PORT = None  # Sunucu tarafından belirlenen dinamik port
-
 
 def find_available_port(start_port=DEFAULT_PORT):
     """Başlangıç portundan itibaren müsait bir port bulur."""
@@ -259,7 +244,6 @@ def find_available_port(start_port=DEFAULT_PORT):
 
     raise Exception("❌ Müsait port bulunamadı! Lütfen sistem yöneticinize başvurun.")
 
-
 def get_local_ip():
     """Makinenin yerel IP adresini otomatik olarak bulur."""
     try:
@@ -277,18 +261,15 @@ def get_local_ip():
             # Son çare: localhost
             return "127.0.0.1"
 
-
 # ==============================================================================
 # SUNUCU TARAFI MANTIĞI (server.py'dan taşındı)
 # ==============================================================================
 
 rooms = {}
 
-
 def generate_room_id():
     """4 haneli rastgele oda ID'si oluşturur."""
     return "".join(random.choices(string.digits, k=4))
-
 
 def check_username_availability(room_id, username):
     """Bir odada kullanıcı adının müsait olup olmadığını kontrol eder."""
@@ -297,7 +278,6 @@ def check_username_availability(room_id, username):
 
     existing_usernames = [name.lower() for name in rooms[room_id]["usernames"].values()]
     return username.lower() not in existing_usernames
-
 
 def suggest_alternative_username(room_id, base_username):
     """Mevcut olmayan bir kullanıcı adı önerir."""
@@ -316,7 +296,6 @@ def suggest_alternative_username(room_id, base_username):
     random_suffix = str(int(time.time()) % 1000)
     return f"{base_username}_{random_suffix}"
 
-
 # --- Şifreleme Fonksiyonları ---
 def generate_key_from_room_id(room_id):
     """Oda ID'sine göre şifreleme anahtarı oluşturur."""
@@ -329,13 +308,11 @@ def generate_key_from_room_id(room_id):
     key = base64.urlsafe_b64encode(kdf.derive(b"terminal_chat_secret_key"))
     return Fernet(key)
 
-
 def encrypt_message(message, cipher):
     """Mesajı şifreler."""
     if not ENCRYPTION_AVAILABLE or cipher is None:
         return message
     return cipher.encrypt(message.encode("utf-8")).decode("utf-8")
-
 
 def decrypt_message(encrypted_message, cipher):
     """Şifrelenmiş mesajı çözer."""
@@ -345,7 +322,6 @@ def decrypt_message(encrypted_message, cipher):
         return cipher.decrypt(encrypted_message.encode("utf-8")).decode("utf-8")
     except:
         return encrypted_message  # Şifre çözülemezse orijinal mesajı döndür
-
 
 def broadcast(room_id, message, sender_conn):
     """Bir odadaki herkese şifrelenmiş mesaj gönderir."""
@@ -361,7 +337,6 @@ def broadcast(room_id, message, sender_conn):
                     client_conn.send(message_with_newline.encode("utf-8"))
                 except:
                     remove_client(client_conn)
-
 
 def remove_client(conn):
     """Bir istemciyi odalardan ve sunucudan kaldırır."""
@@ -387,7 +362,6 @@ def remove_client(conn):
                 broadcast(room_id, formatted_message, None)
             break
     conn.close()
-
 
 def handle_client(conn, addr):
     """Her bir istemci bağlantısını yönetir."""
@@ -712,7 +686,6 @@ def handle_client(conn, addr):
             remove_client(conn)
         conn.close()
 
-
 def start_server(host_ip, port=None):
     """Sunucuyu dinlemeye başlatır ve kullanılan portu döndürür."""
     if port is None:
@@ -740,7 +713,6 @@ def start_server(host_ip, port=None):
         thread = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
         thread.start()
 
-
 # ==============================================================================
 # İSTEMCİ TARAFI MANTIĞI
 # ==============================================================================
@@ -755,11 +727,7 @@ client_cipher = None  # İstemci tarafında şifreleme anahtarı
 current_client_socket = None  # Global client socket erişimi
 
 # İstemci tarafında mesaj gruplandırması için
-client_message_data = {
-    "last_message_times": {},
-    "last_message_user": None
-}
-
+client_message_data = {"last_message_times": {}, "last_message_user": None }
 
 def setup_terminal():
     """Terminali anlık karakter girişi için ayarlar."""
@@ -768,7 +736,6 @@ def setup_terminal():
         original_termios_settings = termios.tcgetattr(sys.stdin.fileno())
         tty.setcbreak(sys.stdin.fileno())
 
-
 def restore_terminal():
     """Terminali orijinal ayarlarına döndürür."""
     if original_termios_settings:
@@ -776,10 +743,8 @@ def restore_terminal():
             sys.stdin.fileno(), termios.TCSADRAIN, original_termios_settings
         )
 
-
 def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
-
 
 def redraw_line(message):
     """Gelen mesajı yazdırır ve kullanıcının mevcut girdisini yeniden çizer."""
@@ -859,7 +824,6 @@ def redraw_line(message):
 
         sys.stdout.write(f"Siz: {current_input}")
         sys.stdout.flush()
-
 
 def receive_messages(client_socket):
     global stop_thread, current_client_socket, pause_input, left_via_leave
@@ -964,7 +928,6 @@ def receive_messages(client_socket):
         except:
             break
 
-
 def safe_input(prompt, default="", is_pipe_mode=False):
     """Pipe modunda güvenli input alma fonksiyonu."""
     if is_pipe_mode:
@@ -975,7 +938,6 @@ def safe_input(prompt, default="", is_pipe_mode=False):
     except EOFError:
         print(f"\nPipe modunda EOF. Varsayılan değer kullanılıyor: {default}")
         return default
-
 
 def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     """İstemciyi başlatır ve sunucuya bağlar."""
@@ -1548,16 +1510,11 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                             client.send(current_input.encode("utf-8"))
                         elif current_input.startswith("/"):
                             # Bilinmeyen komutlar
-                            sys.stdout.write(
-                                "\r\x1b[K"
-                                + f"Bilinmeyen komut: {current_input}. /help yazarak yardım alabilirsiniz.\n"
-                            )
+                            sys.stdout.write("\r\x1b[K" + f"Bilinmeyen komut: {current_input}. /help yazarak yardım alabilirsiniz.\n")
                         else:
                             # Normal mesaj - şifrele ve gönder (eğer şifreleme mevcut ise)
                             if ENCRYPTION_AVAILABLE and client_cipher:
-                                encrypted_input = encrypt_message(
-                                    current_input, client_cipher
-                                )
+                                encrypted_input = encrypt_message(current_input, client_cipher)
                                 client.send(encrypted_input.encode("utf-8"))
                             else:
                                 client.send(current_input.encode("utf-8"))
@@ -1599,7 +1556,6 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     else:
         return None
 
-
 # ==============================================================================
 # ANA ÇALIŞTIRMA BLOĞU
 # ==============================================================================
@@ -1617,9 +1573,7 @@ if __name__ == "__main__":
         print("🔍 Script pipe ile çalıştırılıyor (örn: curl | python3)")
         print("📋 Bu durumda sadece host modu desteklenir.")
         print("💡 Normal kullanım için dosyayı indirip çalıştırın:")
-        print(
-            "   wget https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py"
-        )
+        print("   wget https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py")
         print("   python3 client.py --host")
         print()
 
@@ -1628,9 +1582,7 @@ if __name__ == "__main__":
             print("🚀 Host modunda başlatılıyor...")
         else:
             print("❌ Pipe modunda sadece --host kullanılabilir.")
-            print(
-                "Kullanım: curl -s https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py | python3 - --host [port]"
-            )
+            print("Kullanım: curl -s https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py | python3 - --host [port]")
             sys.exit(1)
 
     if len(sys.argv) == 2 and sys.argv[1] == "--host":
