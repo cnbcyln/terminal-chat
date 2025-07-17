@@ -1227,6 +1227,8 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                 print("📭 Şu anda hiç aktif oda bulunmuyor.")
                 if not is_pipe_mode:
                     print("💡 Yeni bir oda oluşturarak sohbete başlayabilirsiniz!")
+                    print("\nAna menüye dönmek için herhangi bir tuşa basın...")
+                    input()
                     client.close()
                     return "RETURN_TO_MENU"
                 else:
@@ -1313,7 +1315,8 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                 else:
                     print("📭 Şu anda hiç aktif oda bulunmuyor.")
                     if not is_pipe_mode:
-                        print("\nAna menüye dönülüyor...")
+                        print("\nAna menüye dönmek için herhangi bir tuşa basın...")
+                        input()
                         client.close()
                         return "RETURN_TO_MENU"
                     else:
@@ -1327,7 +1330,8 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
             else:
                 print(f"Beklenmeyen sunucu yanıtı: {room_list_response}")
                 if not is_pipe_mode:
-                    print("\nAna menüye dönülüyor...")
+                    print("\nAna menüye dönmek için herhangi bir tuşa basın...")
+                    input()
                     client.close()
                     return "RETURN_TO_MENU"
 
@@ -1342,9 +1346,11 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
     else:
         if not is_pipe_mode:
             print("❌ Geçersiz seçim. Lütfen 1, 2 veya 3'ü seçin.")
-            print("Ana menüye dönülüyor...")
+            print("\nAna menüye dönmek için herhangi bir tuşa basın...")
+            input()
             client.close()
-            return
+            # Ana menüye geri dön - yeniden başlat
+            start_client(host_ip, port, show_welcome=True)
         else:
             client.close()
         return
