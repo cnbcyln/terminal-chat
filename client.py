@@ -809,6 +809,25 @@ def redraw_line(message):
                     _, msg_username, msg_content = decrypted_message.split(":", 2)
                     formatted_msg = format_discord_message(msg_username, msg_content, room_data=client_message_data, check_grouping=True)
                     sys.stdout.write("\r\x1b[K" + formatted_msg + "\n")
+                    # Bildirim ve dock bounce ekle
+                    if msg_username != os.getenv("USER", "") and msg_username != "Siz":
+                        try:
+                            # Terminal odakta mı kontrolü (macOS)
+                            is_macos = sys.platform == "darwin"
+                            if is_macos:
+                                # Hangi terminalde çalıştığını bulmak için process adı
+                                term_app = os.environ.get("TERM_PROGRAM", "")
+                                # AppleScript ile ön planda mı kontrolü
+                                script = f'tell application "System Events" to get name of first application process whose frontmost is true'
+                                frontmost = subprocess.check_output(["osascript", "-e", script]).decode().strip()
+                                # Eğer terminal ön planda değilse bildirim ve dock bounce
+                                if not (term_app and term_app in frontmost):
+                                    # Bildirim gönder
+                                    subprocess.Popen(["osascript", "-e", f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'])
+                                    # Dock ikonunu zıplat
+                                    subprocess.Popen(["osascript", "-e", 'tell application "System Events" to tell process "Terminal" to set frontmost to true'])
+                        except Exception:
+                            pass
                 else:
                     sys.stdout.write("\r\x1b[K" + decrypted_message + "\n")
             except Exception:
@@ -817,6 +836,19 @@ def redraw_line(message):
                     _, msg_username, msg_content = message.split(":", 2)
                     formatted_msg = format_discord_message(msg_username, msg_content, room_data=client_message_data, check_grouping=True)
                     sys.stdout.write("\r\x1b[K" + formatted_msg + "\n")
+                    # Bildirim ve dock bounce ekle
+                    if msg_username != os.getenv("USER", "") and msg_username != "Siz":
+                        try:
+                            is_macos = sys.platform == "darwin"
+                            if is_macos:
+                                term_app = os.environ.get("TERM_PROGRAM", "")
+                                script = f'tell application "System Events" to get name of first application process whose frontmost is true'
+                                frontmost = subprocess.check_output(["osascript", "-e", script]).decode().strip()
+                                if not (term_app and term_app in frontmost):
+                                    subprocess.Popen(["osascript", "-e", f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'])
+                                    subprocess.Popen(["osascript", "-e", 'tell application "System Events" to tell process "Terminal" to set frontmost to true'])
+                        except Exception:
+                            pass
                 else:
                     sys.stdout.write("\r\x1b[K" + message + "\n")
         else:
