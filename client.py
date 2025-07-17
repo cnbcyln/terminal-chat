@@ -325,18 +325,19 @@ def decrypt_message(encrypted_message, cipher):
 
 def broadcast(room_id, message, sender_conn):
     """Bir odadaki herkese şifrelenmiş mesaj gönderir."""
-    if room_id in rooms:
-        # Mesajı şifrele
-        cipher = rooms[room_id]["cipher"]
-        encrypted_message = encrypt_message(message, cipher)
-        message_with_newline = encrypted_message + "\n"
+    room = rooms.get(room_id)
+    if not room:
+        return
+    cipher = room["cipher"]
+    encrypted_message = encrypt_message(message, cipher)
+    message_with_newline = encrypted_message + "\n"
 
-        for client_conn in rooms[room_id]["clients"]:
-            if client_conn != sender_conn:
-                try:
-                    client_conn.send(message_with_newline.encode("utf-8"))
-                except:
-                    remove_client(client_conn)
+    for client_conn in list(room["clients"]):
+        if client_conn != sender_conn:
+            try:
+                client_conn.send(message_with_newline.encode("utf-8"))
+            except:
+                remove_client(client_conn)
 
 def remove_client(conn):
     """Bir istemciyi odalardan ve sunucudan kaldırır."""
@@ -356,10 +357,11 @@ def remove_client(conn):
                 else:
                     # Sunucu sahibi ayrıldı ama oda kalabilir (isteğe bağlı)
                     print(f"Sunucu sahibi {username} odadan ayrıldı.")
-
             else:
-                formatted_message = format_system_message(f"{username} odadan ayrıldı.")
-                broadcast(room_id, formatted_message, None)
+                # Oda silinmişse tekrar broadcast yapma
+                if room_id in rooms:
+                    formatted_message = format_system_message(f"{username} odadan ayrıldı.")
+                    broadcast(room_id, formatted_message, None)
             break
     conn.close()
 
@@ -371,7 +373,11 @@ def handle_client(conn, addr):
 
     try:
         while True:
-            data = conn.recv(1024).decode("utf-8").strip()
+            try:
+                data = conn.recv(1024).decode("utf-8").strip()
+            except OSError:
+                # Bağlantı kapatıldıysa döngüden çık
+                break
             if not data:
                 break
 
@@ -533,7 +539,7 @@ def handle_client(conn, addr):
 
                     if is_host:
                         # Oda sahibi çıkış yapmak istiyor
-                        warning_msg = "⚠️  Bu odadan çıkarsanız, odadaki tüm kullanıcılar da otomatik olarak çıkarılacak ve oda kapanacaktır. Devam etmek istiyor musunuz? (evet/hayır)"
+                        warning_msg = "⚠️  Bu odadan çıkarsanız, odadaki tüm kullanıcılar da otomatik olarak çıkarılacak ve oda kapanacaktır. Devam etmek istiyor musunuz? (evet/e/hayır/h)"
                         if ENCRYPTION_AVAILABLE and cipher:
                             encrypted_warning = encrypt_message(warning_msg, cipher)
                             conn.send(
@@ -547,7 +553,7 @@ def handle_client(conn, addr):
                             )
                     else:
                         # Normal katılımcı çıkış yapmak istiyor
-                        warning_msg = "⚠️  Odadan çıkmak üzeresiniz. Devam etmek istiyor musunuz? (evet/hayır)"
+                        warning_msg = "⚠️  Odadan çıkmak üzeresiniz. Devam etmek istiyor musunuz? (evet/e/hayır/h)"
                         if ENCRYPTION_AVAILABLE and cipher:
                             encrypted_warning = encrypt_message(warning_msg, cipher)
                             conn.send(
@@ -572,6 +578,9 @@ def handle_client(conn, addr):
                                 f"Oda sahibi {username} odayı kapattı. Tüm kullanıcılar çıkarılıyor."
                             )
                             broadcast(current_room, formatted_message, conn)
+
+                            import time
+                            time.sleep(3)  # Mesajların istemcilere ulaşması için kısa bekleme
 
                             # Tüm kullanıcıları çıkar
                             for client_conn in list(rooms[current_room]["clients"]):
@@ -684,7 +693,6 @@ def handle_client(conn, addr):
     finally:
         if current_room and conn in rooms.get(current_room, {}).get("clients", []):
             remove_client(conn)
-        conn.close()
 
 def start_server(host_ip, port=None):
     """Sunucuyu dinlemeye başlatır ve kullanılan portu döndürür."""
@@ -766,7 +774,7 @@ def redraw_line(message):
                 decoded_content = content
 
             sys.stdout.write("\r\x1b[K" + decoded_content + "\n")
-            sys.stdout.write("Yanıtınız (evet/hayır): ")
+            sys.stdout.write("Yanıtınız (evet/e/hayır/h): ")
             sys.stdout.flush()
             return msg_type  # Özel handling gerekiyor
 
@@ -782,12 +790,10 @@ def redraw_line(message):
 
             sys.stdout.write("\r\x1b[K" + decoded_content + "\n")
             if message.startswith("ROOM_CLOSED:"):
-                sys.stdout.write("Çıkmak için herhangi bir tuşa basın...")
+                return "RETURN_TO_MENU"
             else:
-                # LEAVE_SUCCESS - ana menüye dön
-                sys.stdout.write("Ana menüye dönülüyor...\n")
-            sys.stdout.flush()
-            return "TERMINATE"
+                sys.stdout.flush()
+                return "TERMINATE"
 
         # Normal mesaj işleme
         if (
@@ -861,6 +867,16 @@ def receive_messages(client_socket):
                         os.write(sys.stdin.fileno(), b"\n")
 
                     break
+                elif special_result == "RETURN_TO_MENU":
+                    stop_thread = True
+                    left_via_leave = True
+                    pause_input = False
+                    import time
+                    time.sleep(0.5)
+                    import os
+                    if os.name != "nt":
+                        os.write(sys.stdin.fileno(), b"\n")
+                    break
                 elif special_result in ["HOST_LEAVE_CONFIRM", "USER_LEAVE_CONFIRM"]:
                     pending_leave_confirmation = special_result
 
@@ -901,7 +917,7 @@ def receive_messages(client_socket):
                             )
                             confirm_message = f"__leave_confirmed__:{confirm_type}"
                             client_socket.send(confirm_message.encode("utf-8"))
-                            print("✅ Çıkış onaylandı, işlem gerçekleştiriliyor...")
+                            print("✅ Oda kapanıyor. Ana menüye dönülüyor...")
                         else:
                             # İptal edildi
                             cancel_message = "__leave_cancelled__:user"
@@ -1549,7 +1565,8 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
 
     # /leave ile çıkış yapıldıysa ana menüye döndür (recursive çağrı yerine return)
     if left_via_leave:
-        print("\nAna menüye dönülüyor...")
+        clear_screen()
+        print("Terminal Chat'e Hoş Geldiniz!")
         # Global değişkenleri sıfırla
         left_via_leave = False
         return "RETURN_TO_MENU"  # Ana menüye dön sinyali
