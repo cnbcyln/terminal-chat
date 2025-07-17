@@ -44,19 +44,6 @@ import string
 import base64
 import subprocess
 from datetime import datetime
-import importlib
-
-pyobjc_available = False  # Global olarak başlat
-# macOS dock bounce için pyobjc
-try:
-    AppKit = importlib.import_module("AppKit")
-    NSApplication = AppKit.NSApplication
-    pyobjc_available = True
-except ImportError:
-    pyobjc_available = False
-
-win_toast_available = False  # Global olarak başlat
-ToastNotifier = None
 
 # --- Otomatik Modül Yükleme Sistemi ---
 def install_package(package_name):
@@ -74,16 +61,14 @@ def install_package(package_name):
 
 def import_with_auto_install():
     """Gerekli modülleri yükleyip import eder."""
-    global Fernet, hashes, PBKDF2HMAC, NSApplication, pyobjc_available, win_toast_available, ToastNotifier
-    pyobjc_available = False
-    win_toast_available = False
-    ToastNotifier = None
+    global Fernet, hashes, PBKDF2HMAC
 
     # cryptography modülünü dene
     try:
         from cryptography.fernet import Fernet
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
         print("🔒 Şifreleme modülleri başarıyla yüklendi.")
     except ImportError as e:
         print("⚠️  Şifreleme modülleri bulunamadı.")
@@ -92,6 +77,7 @@ def import_with_auto_install():
                 from cryptography.fernet import Fernet
                 from cryptography.hazmat.primitives import hashes
                 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
                 print("🔒 Şifreleme modülleri başarıyla yüklendi.")
             except ImportError:
                 print("❌ Şifreleme modülleri yüklenemedi. Program şifreleme olmadan çalışacak.")
@@ -99,55 +85,6 @@ def import_with_auto_install():
         else:
             print("❌ Otomatik yükleme başarısız. Program şifreleme olmadan çalışacak.")
             return False
-
-    # pyobjc (AppKit) modülünü dene (sadece macOS için)
-    import sys
-    if sys.platform == "darwin":
-        try:
-            AppKit = importlib.import_module("AppKit")
-            NSApplication = AppKit.NSApplication
-            pyobjc_available = True
-        except ImportError:
-            print("⚠️  pyobjc (AppKit) modülü bulunamadı. Dock bounce için yükleniyor...")
-            if install_package("pyobjc"):
-                try:
-                    AppKit = importlib.import_module("AppKit")
-                    NSApplication = AppKit.NSApplication
-                    pyobjc_available = True
-                    print("✅ pyobjc (AppKit) başarıyla yüklendi!")
-                except ImportError:
-                    print("❌ pyobjc yüklenemedi. Dock bounce devre dışı.")
-                    pyobjc_available = False
-            else:
-                print("❌ pyobjc yüklenemedi. Dock bounce devre dışı.")
-                pyobjc_available = False
-    else:
-        pyobjc_available = False
-
-    # win10toast modülünü dene (sadece Windows için)
-    if sys.platform == "win32":
-        try:
-            win10toast_mod = importlib.import_module("win10toast")
-            ToastNotifier = win10toast_mod.ToastNotifier
-            win_toast_available = True
-        except ImportError:
-            print("⚠️  win10toast modülü bulunamadı. Bildirim için yükleniyor...")
-            if install_package("win10toast"):
-                try:
-                    win10toast_mod = importlib.import_module("win10toast")
-                    ToastNotifier = win10toast_mod.ToastNotifier
-                    win_toast_available = True
-                    print("✅ win10toast başarıyla yüklendi!")
-                except ImportError:
-                    print("❌ win10toast yüklenemedi. Bildirim devre dışı.")
-                    win_toast_available = False
-            else:
-                print("❌ win10toast yüklenemedi. Bildirim devre dışı.")
-                win_toast_available = False
-    else:
-        win_toast_available = False
-        ToastNotifier = None
-
     return True
 
 # Modülleri yükle
@@ -222,9 +159,10 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
         # Yeni çerçeve - normal format
         # Header text
         header_text = f"{username} - {time_str}"
+        
         # En uzun satırı bul (header veya mesaj satırları)
-        all_lines = [header_text] + message_lines
-        max_width = max(len(line) for line in all_lines)
+        max_width = max(len(header_text), max(len(line) for line in message_lines))
+        
         # Minimum genişlik 30 karakter
         box_width = max(max_width + 4, 30)
 
@@ -245,23 +183,23 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
         # Box çizimi
         # Top line: ╭─ header ─────╮ 
         header_section = f"─ {header_text} "
-        header_len = len(header_section)
-        remaining_dashes = box_width - header_len - 2  # -2 for ╭ and ╮
-        if remaining_dashes < 0:
-            # Header çok uzun, tire ekleme
-            top_line = f"{color}╭{header_section}╮{reset}"
-        else:
-            top_line = f"{color}╭{header_section}" + "─" * remaining_dashes + f"╮{reset}"
+        remaining_dashes = box_width - len(header_section) - 2  # -2 for ╭ and ╮
+        top_line = f"{color}╭{header_section}" + "─" * remaining_dashes + f"╮{reset}"
+        
         # Mesaj satırları
         message_lines_formatted = []
-        content_width = box_width - 4  # -4 for │ space space │
         for line in message_lines:
+            # │ message      │ 
+            content_width = box_width - 4  # -4 for │ space space │
             line_padded = line + " " * (content_width - len(line))
             formatted_line = f"{color}│{reset} {line_padded} {color}│{reset}"
             message_lines_formatted.append(formatted_line)
+        
         bottom_line = f"{color}╰" + "─" * (box_width - 2) + f"╯{reset}"
+        
         # Tüm satırları birleştir
         result = [top_line] + message_lines_formatted + [bottom_line]
+        
         return "\n".join(result)
 
 def format_system_message(message):
@@ -871,51 +809,6 @@ def redraw_line(message):
                     _, msg_username, msg_content = decrypted_message.split(":", 2)
                     formatted_msg = format_discord_message(msg_username, msg_content, room_data=client_message_data, check_grouping=True)
                     sys.stdout.write("\r\x1b[K" + formatted_msg + "\n")
-                    # Bildirim ve dock bounce ekle
-                    if msg_username != os.getenv("USER", "") and msg_username != "Siz":
-                        try:
-                            is_macos = sys.platform == "darwin"
-                            if is_macos:
-                                # Hangi terminalde çalıştığını bulmak için process adı
-                                term_app = os.environ.get("TERM_PROGRAM", "")
-                                # AppleScript ile ön planda mı kontrolü
-                                script = f'tell application "System Events" to get name of first application process whose frontmost is true'
-                                frontmost = subprocess.check_output(["osascript", "-e", script]).decode().strip()
-                                # Eğer terminal ön planda değilse bildirim ve dock bounce
-                                if not (term_app and term_app in frontmost):
-                                    # Bildirim gönder
-                                    subprocess.Popen(["osascript", "-e", f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'])
-                                    # Dock ikonunu zıplat (pyobjc)
-                                    if pyobjc_available:
-                                        try:
-                                            NSApplication.sharedApplication().requestUserAttention_(0)
-                                        except Exception:
-                                            pass
-                            is_windows = sys.platform == "win32"
-                            if is_windows:
-                                if win_toast_available and ToastNotifier is not None:
-                                    try:
-                                        toast = ToastNotifier()
-                                        toast.show_toast(msg_username, msg_content, duration=10)
-                                    except Exception:
-                                        pass
-                                try:
-                                    import ctypes
-                                    hwnd = ctypes.windll.kernel32.GetConsoleWindow()
-                                    if hwnd:
-                                        FLASHW_ALL = 3
-                                        class FLASHWINFO(ctypes.Structure):
-                                            _fields_ = [("cbSize", ctypes.c_uint),
-                                                        ("hwnd", ctypes.c_void_p),
-                                                        ("dwFlags", ctypes.c_uint),
-                                                        ("uCount", ctypes.c_uint),
-                                                        ("dwTimeout", ctypes.c_uint)]
-                                        flash = FLASHWINFO(ctypes.sizeof(FLASHWINFO), hwnd, FLASHW_ALL, 3, 0)
-                                        ctypes.windll.user32.FlashWindowEx(ctypes.byref(flash))
-                                except Exception as e:
-                                    print("Görev çubuğu flash hatası:", e)
-                        except Exception:
-                            pass
                 else:
                     sys.stdout.write("\r\x1b[K" + decrypted_message + "\n")
             except Exception:
@@ -924,23 +817,6 @@ def redraw_line(message):
                     _, msg_username, msg_content = message.split(":", 2)
                     formatted_msg = format_discord_message(msg_username, msg_content, room_data=client_message_data, check_grouping=True)
                     sys.stdout.write("\r\x1b[K" + formatted_msg + "\n")
-                    # Bildirim ve dock bounce ekle
-                    if msg_username != os.getenv("USER", "") and msg_username != "Siz":
-                        try:
-                            is_macos = sys.platform == "darwin"
-                            if is_macos:
-                                term_app = os.environ.get("TERM_PROGRAM", "")
-                                script = f'tell application "System Events" to get name of first application process whose frontmost is true'
-                                frontmost = subprocess.check_output(["osascript", "-e", script]).decode().strip()
-                                if not (term_app and term_app in frontmost):
-                                    subprocess.Popen(["osascript", "-e", f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'])
-                                    if pyobjc_available:
-                                        try:
-                                            NSApplication.sharedApplication().requestUserAttention_(0)
-                                        except Exception:
-                                            pass
-                        except Exception:
-                            pass
                 else:
                     sys.stdout.write("\r\x1b[K" + message + "\n")
         else:
