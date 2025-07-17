@@ -245,23 +245,23 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
         # Box çizimi
         # Top line: ╭─ header ─────╮ 
         header_section = f"─ {header_text} "
-        remaining_dashes = box_width - len(header_section) - 2  # -2 for ╭ and ╮
-        top_line = f"{color}╭{header_section}" + "─" * remaining_dashes + f"╮{reset}"
-        
+        header_len = len(header_section)
+        remaining_dashes = box_width - header_len - 2  # -2 for ╭ and ╮
+        if remaining_dashes < 0:
+            # Header çok uzun, tire ekleme
+            top_line = f"{color}╭{header_section}╮{reset}"
+        else:
+            top_line = f"{color}╭{header_section}" + "─" * remaining_dashes + f"╮{reset}"
         # Mesaj satırları
         message_lines_formatted = []
+        content_width = box_width - 4  # -4 for │ space space │
         for line in message_lines:
-            # │ message      │ 
-            content_width = box_width - 4  # -4 for │ space space │
             line_padded = line + " " * (content_width - len(line))
             formatted_line = f"{color}│{reset} {line_padded} {color}│{reset}"
             message_lines_formatted.append(formatted_line)
-        
         bottom_line = f"{color}╰" + "─" * (box_width - 2) + f"╯{reset}"
-        
         # Tüm satırları birleştir
         result = [top_line] + message_lines_formatted + [bottom_line]
-        
         return "\n".join(result)
 
 def format_system_message(message):
