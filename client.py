@@ -44,19 +44,16 @@ import string
 import base64
 import subprocess
 from datetime import datetime
+import importlib
 
 pyobjc_available = False  # Global olarak başlat
 # macOS dock bounce için pyobjc
 try:
-    from AppKit import NSApplication
+    AppKit = importlib.import_module("AppKit")
+    NSApplication = AppKit.NSApplication
     pyobjc_available = True
 except ImportError:
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyobjc"])
-        from AppKit import NSApplication
-        pyobjc_available = True
-    except Exception:
-        pyobjc_available = False
+    pyobjc_available = False
 
 # --- Otomatik Modül Yükleme Sistemi ---
 def install_package(package_name):
@@ -102,13 +99,15 @@ def import_with_auto_install():
     import sys
     if sys.platform == "darwin":
         try:
-            from AppKit import NSApplication
+            AppKit = importlib.import_module("AppKit")
+            NSApplication = AppKit.NSApplication
             pyobjc_available = True
         except ImportError:
             print("⚠️  pyobjc (AppKit) modülü bulunamadı. Dock bounce için yükleniyor...")
             if install_package("pyobjc"):
                 try:
-                    from AppKit import NSApplication
+                    AppKit = importlib.import_module("AppKit")
+                    NSApplication = AppKit.NSApplication
                     pyobjc_available = True
                     print("✅ pyobjc (AppKit) başarıyla yüklendi!")
                 except ImportError:
