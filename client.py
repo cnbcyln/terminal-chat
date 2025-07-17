@@ -157,7 +157,7 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
         message_lines_formatted = []
         for line in message_lines:
             line_padded = line + " " * (content_width - len(line))
-            formatted_line = f"{color}│{reset} {line_padded} {color}│{reset}"
+            formatted_line = f"{color}│{reset} {line.ljust(content_width)}{color}│{reset}"
             message_lines_formatted.append(formatted_line)
         
         # Yeni alt çizgi
