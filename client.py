@@ -222,10 +222,9 @@ def format_discord_message(username, message, room_data=None, is_system=False, c
         # Yeni çerçeve - normal format
         # Header text
         header_text = f"{username} - {time_str}"
-        
         # En uzun satırı bul (header veya mesaj satırları)
-        max_width = max(len(header_text), max(len(line) for line in message_lines))
-        
+        all_lines = [header_text] + message_lines
+        max_width = max(len(line) for line in all_lines)
         # Minimum genişlik 30 karakter
         box_width = max(max_width + 4, 30)
 
