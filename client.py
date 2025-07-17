@@ -983,20 +983,10 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
         print(
             f"Sunucuya bağlanılamadı ({host_ip}:{port}). IP adresinin ve portun doğru olduğundan ve sunucunun çalıştığından emin olun."
         )
-        if not is_pipe_mode:
-            print("\nAna menüye dönmek için herhangi bir tuşa basın...")
-            input()
-            # Ana menüye geri dön - yeniden başlat
-            start_client(host_ip, port, show_welcome=True)
-        return
+        sys.exit(1)
     except socket.gaierror:
         print(f"'{host_ip}' adresi çözümlenemedi. Geçerli bir IP adresi girin.")
-        if not is_pipe_mode:
-            print("\nAna menüye dönmek için herhangi bir tuşa basın...")
-            input()
-            # Ana menüye geri dön - yeniden başlat
-            start_client(host_ip, port, show_welcome=True)
-        return
+        sys.exit(1)
 
     # --- Başlangıç Ayarları ---
     if show_welcome:
