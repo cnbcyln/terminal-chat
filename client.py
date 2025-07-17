@@ -11,7 +11,7 @@ Hızlı Başlangıç:
    curl -s https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py | python3 - --host 8080
 
 2. Normal Kullanım (Dosya indirme):
-   wget https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py
+   wget -q -O client.py https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py
    python3 client.py --host                    # Otomatik port
    python3 client.py --host 8080               # Özel port
    python3 client.py --connect 192.168.1.100:8080  # Bağlan
@@ -22,14 +22,14 @@ Hızlı Başlangıç:
 - 👥 Çoklu kullanıcı desteği
 - 🏠 Oda sistemi (benzersiz adlar)
 - 🌐 Otomatik IP tespit
-- 🚪 Nazik çıkış sistemi (/leave)
+- 🚪 Oda kapatma sistemi (/leave)
 - 📦 Otomatik bağımlılık yükleme
 
 Komutlar:
 =========
 /help   - Yardım
 /users  - Kullanıcı listesi
-/leave  - Nazik çıkış
+/leave  - Oda kapatma
 /quit   - Hızlı çıkış
 """
 
@@ -1590,7 +1590,7 @@ if __name__ == "__main__":
         print("🔍 Script pipe ile çalıştırılıyor (örn: curl | python3)")
         print("📋 Bu durumda sadece host modu desteklenir.")
         print("💡 Normal kullanım için dosyayı indirip çalıştırın:")
-        print("   wget https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py")
+        print("   wget -q -O client.py https://raw.githubusercontent.com/cnbcyln/terminal-chat/main/client.py")
         print("   python3 client.py --host")
         print()
 
