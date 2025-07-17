@@ -45,6 +45,19 @@ import base64
 import subprocess
 from datetime import datetime
 
+pyobjc_available = False  # Global olarak başlat
+# macOS dock bounce için pyobjc
+try:
+    from AppKit import NSApplication
+    pyobjc_available = True
+except ImportError:
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyobjc"])
+        from AppKit import NSApplication
+        pyobjc_available = True
+    except Exception:
+        pyobjc_available = False
+
 # --- Otomatik Modül Yükleme Sistemi ---
 def install_package(package_name):
     """Eksik paketi otomatik olarak yükler."""
@@ -61,14 +74,14 @@ def install_package(package_name):
 
 def import_with_auto_install():
     """Gerekli modülleri yükleyip import eder."""
-    global Fernet, hashes, PBKDF2HMAC
+    global Fernet, hashes, PBKDF2HMAC, NSApplication, pyobjc_available
+    pyobjc_available = False
 
     # cryptography modülünü dene
     try:
         from cryptography.fernet import Fernet
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
         print("🔒 Şifreleme modülleri başarıyla yüklendi.")
     except ImportError as e:
         print("⚠️  Şifreleme modülleri bulunamadı.")
@@ -77,7 +90,6 @@ def import_with_auto_install():
                 from cryptography.fernet import Fernet
                 from cryptography.hazmat.primitives import hashes
                 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
                 print("🔒 Şifreleme modülleri başarıyla yüklendi.")
             except ImportError:
                 print("❌ Şifreleme modülleri yüklenemedi. Program şifreleme olmadan çalışacak.")
@@ -85,6 +97,29 @@ def import_with_auto_install():
         else:
             print("❌ Otomatik yükleme başarısız. Program şifreleme olmadan çalışacak.")
             return False
+
+    # pyobjc (AppKit) modülünü dene (sadece macOS için)
+    import sys
+    if sys.platform == "darwin":
+        try:
+            from AppKit import NSApplication
+            pyobjc_available = True
+        except ImportError:
+            print("⚠️  pyobjc (AppKit) modülü bulunamadı. Dock bounce için yükleniyor...")
+            if install_package("pyobjc"):
+                try:
+                    from AppKit import NSApplication
+                    pyobjc_available = True
+                    print("✅ pyobjc (AppKit) başarıyla yüklendi!")
+                except ImportError:
+                    print("❌ pyobjc yüklenemedi. Dock bounce devre dışı.")
+                    pyobjc_available = False
+            else:
+                print("❌ pyobjc yüklenemedi. Dock bounce devre dışı.")
+                pyobjc_available = False
+    else:
+        pyobjc_available = False
+
     return True
 
 # Modülleri yükle
@@ -812,7 +847,6 @@ def redraw_line(message):
                     # Bildirim ve dock bounce ekle
                     if msg_username != os.getenv("USER", "") and msg_username != "Siz":
                         try:
-                            # Terminal odakta mı kontrolü (macOS)
                             is_macos = sys.platform == "darwin"
                             if is_macos:
                                 # Hangi terminalde çalıştığını bulmak için process adı
@@ -824,8 +858,12 @@ def redraw_line(message):
                                 if not (term_app and term_app in frontmost):
                                     # Bildirim gönder
                                     subprocess.Popen(["osascript", "-e", f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'])
-                                    # Dock ikonunu zıplat
-                                    subprocess.Popen(["osascript", "-e", 'tell application "System Events" to tell process "Terminal" to set frontmost to true'])
+                                    # Dock ikonunu zıplat (pyobjc)
+                                    if pyobjc_available:
+                                        try:
+                                            NSApplication.sharedApplication().requestUserAttention_(0)
+                                        except Exception:
+                                            pass
                         except Exception:
                             pass
                 else:
@@ -846,7 +884,11 @@ def redraw_line(message):
                                 frontmost = subprocess.check_output(["osascript", "-e", script]).decode().strip()
                                 if not (term_app and term_app in frontmost):
                                     subprocess.Popen(["osascript", "-e", f'display notification "{msg_content}" with title "{msg_username} - Terminal Chat"'])
-                                    subprocess.Popen(["osascript", "-e", 'tell application "System Events" to tell process "Terminal" to set frontmost to true'])
+                                    if pyobjc_available:
+                                        try:
+                                            NSApplication.sharedApplication().requestUserAttention_(0)
+                                        except Exception:
+                                            pass
                         except Exception:
                             pass
                 else:
