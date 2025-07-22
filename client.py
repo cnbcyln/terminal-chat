@@ -374,366 +374,320 @@ def handle_client(conn, addr):
     try:
         while True:
             try:
-                data = conn.recv(1024)
-                if not data:
-                    break
-                # Dosya transferi için özel protokol
-                if data.startswith(b"__sendfile_request__:"):
-                    parts = data.decode("utf-8").split(":")
-                    mode = parts[1]
-                    target = parts[2]
-                    file_name = parts[3]
-                    file_size = int(parts[4])
-                    sender_username = rooms.get(current_room, {}).get("usernames", {}).get(conn, "Bilinmeyen")
-                    if mode == "user":
-                        # Sadece hedef kullanıcıya ilet
-                        for c, uname in rooms[current_room]["usernames"].items():
-                            if uname == target:
-                                msg = f"__sendfile_incoming__:user:{sender_username}:{file_name}:{file_size}"
-                                c.send(msg.encode("utf-8"))
-                                # Onay bekle
-                                resp = c.recv(1024).decode("utf-8")
-                                if resp.startswith("__sendfile_accept__"):
-                                    conn.send("__sendfile_accept__".encode("utf-8"))
-                                else:
-                                    conn.send("__sendfile_reject__".encode("utf-8"))
-                    elif mode == "room":
-                        # Odaya: herkese ilet, kabul edenleri topla
-                        accept_users = []
-                        for c, uname in rooms[current_room]["usernames"].items():
-                            if c == conn:
-                                continue
-                            msg = f"__sendfile_incoming__:room:{sender_username}:{file_name}:{file_size}"
-                            c.send(msg.encode("utf-8"))
-                            resp = c.recv(1024).decode("utf-8")
-                            if resp.startswith("__sendfile_accept__"):
-                                accept_users.append(uname)
-                        msg = "__sendfile_acceptlist__:" + ",".join(accept_users)
-                        conn.send(msg.encode("utf-8"))
-                    continue
-                # Dosya veri transferi
-                if data.startswith(b"__sendfile_data__:"):
-                    # __sendfile_data__:<target>:<filename>:<offset>:<datalen>:<data>
-                    header, filedata = data.split(b":", 5)[:5], data.split(b":", 5)[5]
-                    _, target_user, file_name, offset, datalen = [h.decode("utf-8") for h in header]
-                    offset = int(offset)
-                    datalen = int(datalen)
-                    # Hedef kullanıcıya ilet
-                    for c, uname in rooms[current_room]["usernames"].items():
-                        if uname == target_user:
-                            c.send(data)
-                    continue
-                # Diğer mesajlar
-                data = data.decode("utf-8").strip()
-                if data.startswith("__create_room__"):
-                    _, room_name, req_username = data.split(":", 2)
+                data = conn.recv(1024).decode("utf-8").strip()
+            except OSError:
+                # Bağlantı kapatıldıysa döngüden çık
+                break
+            if not data:
+                break
+
+            if data.startswith("__create_room__"):
+                _, room_name, req_username = data.split(":", 2)
+                room_id = generate_room_id()
+                while room_id in rooms:
                     room_id = generate_room_id()
-                    while room_id in rooms:
-                        room_id = generate_room_id()
 
-                    # Kullanıcı adı kontrolü (yeni oda için her zaman müsait)
-                    final_username = req_username
+                # Kullanıcı adı kontrolü (yeni oda için her zaman müsait)
+                final_username = req_username
 
-                    # Oda için şifreleme anahtarı oluştur
-                    if ENCRYPTION_AVAILABLE:
-                        room_cipher = generate_key_from_room_id(room_id)
+                # Oda için şifreleme anahtarı oluştur
+                if ENCRYPTION_AVAILABLE:
+                    room_cipher = generate_key_from_room_id(room_id)
+                else:
+                    room_cipher = None
+
+                rooms[room_id] = {
+                    "name": room_name,
+                    "clients": [conn],
+                    "usernames": {conn: final_username},
+                    "host_conn": conn,  # Odayı kuran sunucu sahibi
+                    "cipher": room_cipher,
+                }
+                current_room = room_id
+                username = final_username
+                cipher = room_cipher
+                conn.send(
+                    f"ROOM_CREATED:{room_id}:{room_name}:{final_username}\n".encode(
+                        "utf-8"
+                    )
+                )
+
+            elif data.startswith("__join_room__"):
+                _, room_id, req_username = data.split(":", 2)
+                if room_id in rooms:
+                    # Kullanıcı adı müsait mi kontrol et
+                    if check_username_availability(room_id, req_username):
+                        final_username = req_username
+                        rooms[room_id]["clients"].append(conn)
+                        rooms[room_id]["usernames"][conn] = final_username
+                        current_room = room_id
+                        username = final_username
+                        cipher = rooms[room_id]["cipher"]
+                        conn.send(
+                            f"JOIN_SUCCESS:{room_id}:{rooms[room_id]['name']}:{final_username}\n".encode(
+                                "utf-8"
+                            )
+                        )
+                        formatted_message = format_system_message(
+                            f"{username} odaya katıldı."
+                        )
+                        broadcast(current_room, formatted_message, conn)
                     else:
-                        room_cipher = None
+                        # Kullanıcı adı zaten mevcut, alternatif öner
+                        suggested_username = suggest_alternative_username(
+                            room_id, req_username
+                        )
+                        conn.send(
+                            f"USERNAME_TAKEN:{req_username}:{suggested_username}\n".encode(
+                                "utf-8"
+                            )
+                        )
+                else:
+                    conn.send("JOIN_ERROR:Oda bulunamadı.\n".encode("utf-8"))
 
-                    rooms[room_id] = {
-                        "name": room_name,
-                        "clients": [conn],
-                        "usernames": {conn: final_username},
-                        "host_conn": conn,  # Odayı kuran sunucu sahibi
-                        "cipher": room_cipher,
-                    }
-                    current_room = room_id
-                    username = final_username
-                    cipher = room_cipher
+            elif data.startswith("__check_room__"):
+                # Oda varlık kontrolü
+                _, room_id = data.split(":", 1)
+                if room_id in rooms:
+                    room_name = rooms[room_id]["name"]
+                    user_count = len(rooms[room_id]["clients"])
                     conn.send(
-                        f"ROOM_CREATED:{room_id}:{room_name}:{final_username}\n".encode(
+                        f"ROOM_EXISTS:{room_id}:{room_name}:{user_count}\n".encode(
                             "utf-8"
                         )
                     )
+                else:
+                    conn.send(f"ROOM_NOT_FOUND:{room_id}\n".encode("utf-8"))
 
-                elif data.startswith("__join_room__"):
-                    _, room_id, req_username = data.split(":", 2)
-                    if room_id in rooms:
-                        # Kullanıcı adı müsait mi kontrol et
-                        if check_username_availability(room_id, req_username):
-                            final_username = req_username
-                            rooms[room_id]["clients"].append(conn)
-                            rooms[room_id]["usernames"][conn] = final_username
-                            current_room = room_id
-                            username = final_username
-                            cipher = rooms[room_id]["cipher"]
-                            conn.send(
-                                f"JOIN_SUCCESS:{room_id}:{rooms[room_id]['name']}:{final_username}\n".encode(
-                                    "utf-8"
-                                )
-                            )
-                            formatted_message = format_system_message(
-                                f"{username} odaya katıldı."
-                            )
-                            broadcast(current_room, formatted_message, conn)
-                        else:
-                            # Kullanıcı adı zaten mevcut, alternatif öner
-                            suggested_username = suggest_alternative_username(
-                                room_id, req_username
-                            )
-                            conn.send(
-                                f"USERNAME_TAKEN:{req_username}:{suggested_username}\n".encode(
-                                    "utf-8"
-                                )
-                            )
-                    else:
-                        conn.send("JOIN_ERROR:Oda bulunamadı.\n".encode("utf-8"))
+            elif data.startswith("__check_room_name__"):
+                # Oda ismi kontrolü
+                _, requested_room_name = data.split(":", 1)
+                room_name_exists = False
+                existing_room_id = None
 
-                elif data.startswith("__check_room__"):
-                    # Oda varlık kontrolü
-                    _, room_id = data.split(":", 1)
-                    if room_id in rooms:
-                        room_name = rooms[room_id]["name"]
-                        user_count = len(rooms[room_id]["clients"])
-                        conn.send(
-                            f"ROOM_EXISTS:{room_id}:{room_name}:{user_count}\n".encode(
-                                "utf-8"
-                            )
-                        )
-                    else:
-                        conn.send(f"ROOM_NOT_FOUND:{room_id}\n".encode("utf-8"))
-
-                elif data.startswith("__check_room_name__"):
-                    # Oda ismi kontrolü
-                    _, requested_room_name = data.split(":", 1)
-                    room_name_exists = False
-                    existing_room_id = None
-
-                    # Tüm odalarda aynı isim var mı kontrol et
-                    for rid, room_data in rooms.items():
-                        if room_data["name"].lower() == requested_room_name.lower():
-                            room_name_exists = True
-                            existing_room_id = rid
-                            break
-
-                    if room_name_exists:
-                        user_count = len(rooms[existing_room_id]["clients"])
-                        conn.send(
-                            f"ROOM_NAME_EXISTS:{requested_room_name}:{existing_room_id}:{user_count}\n".encode(
-                                "utf-8"
-                            )
-                        )
-                    else:
-                        conn.send(
-                            f"ROOM_NAME_AVAILABLE:{requested_room_name}\n".encode("utf-8")
-                        )
-
-                elif data.startswith("__list_rooms__"):
-                    # Oda listesi komutu
-                    if not rooms:
-                        conn.send("ROOM_LIST_EMPTY:\n".encode("utf-8"))
-                    else:
-                        room_list = []
-                        for room_id, room_data in rooms.items():
-                            room_name = room_data["name"]
-                            user_count = len(room_data["clients"])
-                            room_list.append(f"{room_name}:{room_id}:{user_count}")
-
-                        rooms_data = "|".join(room_list)
-                        conn.send(f"ROOM_LIST:{rooms_data}\n".encode("utf-8"))
-
-                elif data.startswith("__join_with_new_username__"):
-                    _, room_id, new_username = data.split(":", 2)
-                    if room_id in rooms:
-                        if check_username_availability(room_id, new_username):
-                            rooms[room_id]["clients"].append(conn)
-                            rooms[room_id]["usernames"][conn] = new_username
-                            current_room = room_id
-                            username = new_username
-                            cipher = rooms[room_id]["cipher"]
-                            conn.send(
-                                f"JOIN_SUCCESS:{room_id}:{rooms[room_id]['name']}:{new_username}\n".encode(
-                                    "utf-8"
-                                )
-                            )
-                            formatted_message = format_system_message(
-                                f"{username} odaya katıldı."
-                            )
-                            broadcast(current_room, formatted_message, conn)
-                        else:
-                            # Hala mevcut, yeni alternatif öner
-                            suggested_username = suggest_alternative_username(
-                                room_id, new_username
-                            )
-                            conn.send(
-                                f"USERNAME_TAKEN:{new_username}:{suggested_username}\n".encode(
-                                    "utf-8"
-                                )
-                            )
-                    else:
-                        conn.send("JOIN_ERROR:Oda bulunamadı.\n".encode("utf-8"))
-
-                elif current_room and username and cipher:
-                    if data == "/quit":
+                # Tüm odalarda aynı isim var mı kontrol et
+                for rid, room_data in rooms.items():
+                    if room_data["name"].lower() == requested_room_name.lower():
+                        room_name_exists = True
+                        existing_room_id = rid
                         break
 
-                    elif data == "/leave":
-                        # Odadan çıkma komutu - oda sahibi vs katılımcı kontrolü
-                        is_host = rooms[current_room].get("host_conn") == conn
+                if room_name_exists:
+                    user_count = len(rooms[existing_room_id]["clients"])
+                    conn.send(
+                        f"ROOM_NAME_EXISTS:{requested_room_name}:{existing_room_id}:{user_count}\n".encode(
+                            "utf-8"
+                        )
+                    )
+                else:
+                    conn.send(
+                        f"ROOM_NAME_AVAILABLE:{requested_room_name}\n".encode("utf-8")
+                    )
 
-                        if is_host:
-                            # Oda sahibi çıkış yapmak istiyor
-                            warning_msg = "⚠️  Bu odadan çıkarsanız, odadaki tüm kullanıcılar da otomatik olarak çıkarılacak ve oda kapanacaktır. Devam etmek istiyor musunuz? (evet/e/hayır/h)"
-                            if ENCRYPTION_AVAILABLE and cipher:
-                                encrypted_warning = encrypt_message(warning_msg, cipher)
-                                conn.send(
-                                    f"HOST_LEAVE_CONFIRM:{encrypted_warning}\n".encode(
-                                        "utf-8"
-                                    )
-                                )
-                            else:
-                                conn.send(
-                                    f"HOST_LEAVE_CONFIRM:{warning_msg}\n".encode("utf-8")
-                                )
-                        else:
-                            # Normal katılımcı çıkış yapmak istiyor
-                            warning_msg = "⚠️  Odadan çıkmak üzeresiniz. Devam etmek istiyor musunuz? (evet/e/hayır/h)"
-                            if ENCRYPTION_AVAILABLE and cipher:
-                                encrypted_warning = encrypt_message(warning_msg, cipher)
-                                conn.send(
-                                    f"USER_LEAVE_CONFIRM:{encrypted_warning}\n".encode(
-                                        "utf-8"
-                                    )
-                                )
-                            else:
-                                conn.send(
-                                    f"USER_LEAVE_CONFIRM:{warning_msg}\n".encode("utf-8")
-                                )
+            elif data.startswith("__list_rooms__"):
+                # Oda listesi komutu
+                if not rooms:
+                    conn.send("ROOM_LIST_EMPTY:\n".encode("utf-8"))
+                else:
+                    room_list = []
+                    for room_id, room_data in rooms.items():
+                        room_name = room_data["name"]
+                        user_count = len(room_data["clients"])
+                        room_list.append(f"{room_name}:{room_id}:{user_count}")
 
-                    elif data.startswith("__leave_confirmed__"):
-                        # Çıkış onaylandı
-                        _, confirm_type = data.split(":", 1)
+                    rooms_data = "|".join(room_list)
+                    conn.send(f"ROOM_LIST:{rooms_data}\n".encode("utf-8"))
 
-                        if confirm_type == "host":
-                            # Oda sahibi onayladı - tüm odayı kapat
-                            if current_room in rooms:
-                                # Önce diğer kullanıcılara haber ver
-                                formatted_message = format_system_message(
-                                    f"Oda sahibi {username} odayı kapattı. Tüm kullanıcılar çıkarılıyor."
-                                )
-                                broadcast(current_room, formatted_message, conn)
-
-                                import time
-                                time.sleep(3)  # Mesajların istemcilere ulaşması için kısa bekleme
-
-                                # Tüm kullanıcıları çıkar
-                                for client_conn in list(rooms[current_room]["clients"]):
-                                    if client_conn != conn:
-                                        try:
-                                            goodbye_msg = "Sistem: Oda kapatıldı. Bağlantı sonlandırılıyor."
-                                            if ENCRYPTION_AVAILABLE and cipher:
-                                                encrypted_goodbye = encrypt_message(
-                                                    goodbye_msg, cipher
-                                                )
-                                                client_conn.send(
-                                                    f"ROOM_CLOSED:{encrypted_goodbye}\n".encode(
-                                                        "utf-8"
-                                                    )
-                                                )
-                                            else:
-                                                client_conn.send(
-                                                    f"ROOM_CLOSED:{goodbye_msg}\n".encode(
-                                                        "utf-8"
-                                                    )
-                                                )
-                                            client_conn.close()
-                                        except:
-                                            pass
-
-                                # Odayı sil
-                                del rooms[current_room]
-                                print(
-                                    f"Oda {current_room} oda sahibi tarafından kapatıldı."
-                                )
-
-                            # Oda sahibini de çıkar
-                            goodbye_msg = (
-                                "Sistem: Oda başarıyla kapatıldı. Bağlantı sonlandırılıyor."
+            elif data.startswith("__join_with_new_username__"):
+                _, room_id, new_username = data.split(":", 2)
+                if room_id in rooms:
+                    if check_username_availability(room_id, new_username):
+                        rooms[room_id]["clients"].append(conn)
+                        rooms[room_id]["usernames"][conn] = new_username
+                        current_room = room_id
+                        username = new_username
+                        cipher = rooms[room_id]["cipher"]
+                        conn.send(
+                            f"JOIN_SUCCESS:{room_id}:{rooms[room_id]['name']}:{new_username}\n".encode(
+                                "utf-8"
                             )
-                            if ENCRYPTION_AVAILABLE and cipher:
-                                encrypted_goodbye = encrypt_message(goodbye_msg, cipher)
-                                conn.send(
-                                    f"LEAVE_SUCCESS:{encrypted_goodbye}\n".encode("utf-8")
-                                )
-                            else:
-                                conn.send(f"LEAVE_SUCCESS:{goodbye_msg}\n".encode("utf-8"))
-                            break
-
-                        elif confirm_type == "user":
-                            # Normal kullanıcı onayladı - sadece kendisini çıkar
-
-                            # Önce mesajı gönder
-                            goodbye_msg = "Sistem: Odadan başarıyla çıktınız. Bağlantı sonlandırılıyor."
-                            if ENCRYPTION_AVAILABLE and cipher:
-                                encrypted_goodbye = encrypt_message(goodbye_msg, cipher)
-                                conn.send(
-                                    f"LEAVE_SUCCESS:{encrypted_goodbye}\n".encode("utf-8")
-                                )
-                            else:
-                                conn.send(f"LEAVE_SUCCESS:{goodbye_msg}\n".encode("utf-8"))
-
-                            # remove_client zaten broadcast yapacak, tekrar yapmaya gerek yok
-                            remove_client(conn)
-                            break
-
-                    elif data.startswith("__leave_cancelled__"):
-                        # Çıkış iptal edildi
-                        cancel_msg = format_system_message("Odadan çıkış iptal edildi.")
-                        if ENCRYPTION_AVAILABLE and cipher:
-                            encrypted_cancel = encrypt_message(cancel_msg, cipher)
-                            conn.send(f"{encrypted_cancel}\n".encode("utf-8"))
-                        else:
-                            conn.send(f"{cancel_msg}\n".encode("utf-8"))
-
-                    elif data == "/users":
-                        user_list = ", ".join(rooms[current_room]["usernames"].values())
-                        response_message = format_system_message(
-                            f"Odadaki kullanıcılar: {user_list}"
                         )
-                        if ENCRYPTION_AVAILABLE and cipher:
-                            encrypted_response = encrypt_message(response_message, cipher)
-                            conn.send(f"{encrypted_response}\n".encode("utf-8"))
-                        else:
-                            conn.send(f"{response_message}\n".encode("utf-8"))
-
-                    elif data == "/help":
-                        response_message = format_system_message(
-                            "Kullanılabilir komutlar: /users, /leave, /quit, /help"
+                        formatted_message = format_system_message(
+                            f"{username} odaya katıldı."
                         )
-                        if ENCRYPTION_AVAILABLE and cipher:
-                            encrypted_response = encrypt_message(response_message, cipher)
-                            conn.send(f"{encrypted_response}\n".encode("utf-8"))
-                        else:
-                            conn.send(f"{response_message}\n".encode("utf-8"))
+                        broadcast(current_room, formatted_message, conn)
+                    else:
+                        # Hala mevcut, yeni alternatif öner
+                        suggested_username = suggest_alternative_username(
+                            room_id, new_username
+                        )
+                        conn.send(
+                            f"USERNAME_TAKEN:{new_username}:{suggested_username}\n".encode(
+                                "utf-8"
+                            )
+                        )
+                else:
+                    conn.send("JOIN_ERROR:Oda bulunamadı.\n".encode("utf-8"))
 
-                    elif not data.startswith("/") and not data.startswith("__"):
-                        # Gelen mesajı şifre çöz (eğer şifreleme mevcut ise)
+            elif current_room and username and cipher:
+                if data == "/quit":
+                    break
+
+                elif data == "/leave":
+                    # Odadan çıkma komutu - oda sahibi vs katılımcı kontrolü
+                    is_host = rooms[current_room].get("host_conn") == conn
+
+                    if is_host:
+                        # Oda sahibi çıkış yapmak istiyor
+                        warning_msg = "⚠️  Bu odadan çıkarsanız, odadaki tüm kullanıcılar da otomatik olarak çıkarılacak ve oda kapanacaktır. Devam etmek istiyor musunuz? (evet/e/hayır/h)"
                         if ENCRYPTION_AVAILABLE and cipher:
-                            try:
-                                decrypted_message = decrypt_message(data, cipher)
-                                # Sunucu tarafında basit format - gruplandırma istemci tarafında yapılacak
-                                formatted_message = f"MSG:{username}:{decrypted_message}"
-                                broadcast(current_room, formatted_message, conn)
-                            except Exception:
-                                # Şifre çözülemezse orijinal mesajı kullan
-                                formatted_message = f"MSG:{username}:{data}"
-                                broadcast(current_room, formatted_message, conn)
+                            encrypted_warning = encrypt_message(warning_msg, cipher)
+                            conn.send(
+                                f"HOST_LEAVE_CONFIRM:{encrypted_warning}\n".encode(
+                                    "utf-8"
+                                )
+                            )
                         else:
-                            formatted_message = f"MSG:{username}:{data}"
+                            conn.send(
+                                f"HOST_LEAVE_CONFIRM:{warning_msg}\n".encode("utf-8")
+                            )
+                    else:
+                        # Normal katılımcı çıkış yapmak istiyor
+                        warning_msg = "⚠️  Odadan çıkmak üzeresiniz. Devam etmek istiyor musunuz? (evet/e/hayır/h)"
+                        if ENCRYPTION_AVAILABLE and cipher:
+                            encrypted_warning = encrypt_message(warning_msg, cipher)
+                            conn.send(
+                                f"USER_LEAVE_CONFIRM:{encrypted_warning}\n".encode(
+                                    "utf-8"
+                                )
+                            )
+                        else:
+                            conn.send(
+                                f"USER_LEAVE_CONFIRM:{warning_msg}\n".encode("utf-8")
+                            )
+
+                elif data.startswith("__leave_confirmed__"):
+                    # Çıkış onaylandı
+                    _, confirm_type = data.split(":", 1)
+
+                    if confirm_type == "host":
+                        # Oda sahibi onayladı - tüm odayı kapat
+                        if current_room in rooms:
+                            # Önce diğer kullanıcılara haber ver
+                            formatted_message = format_system_message(
+                                f"Oda sahibi {username} odayı kapattı. Tüm kullanıcılar çıkarılıyor."
+                            )
                             broadcast(current_room, formatted_message, conn)
 
-            except OSError:
-                break
+                            import time
+                            time.sleep(3)  # Mesajların istemcilere ulaşması için kısa bekleme
+
+                            # Tüm kullanıcıları çıkar
+                            for client_conn in list(rooms[current_room]["clients"]):
+                                if client_conn != conn:
+                                    try:
+                                        goodbye_msg = "Sistem: Oda kapatıldı. Bağlantı sonlandırılıyor."
+                                        if ENCRYPTION_AVAILABLE and cipher:
+                                            encrypted_goodbye = encrypt_message(
+                                                goodbye_msg, cipher
+                                            )
+                                            client_conn.send(
+                                                f"ROOM_CLOSED:{encrypted_goodbye}\n".encode(
+                                                    "utf-8"
+                                                )
+                                            )
+                                        else:
+                                            client_conn.send(
+                                                f"ROOM_CLOSED:{goodbye_msg}\n".encode(
+                                                    "utf-8"
+                                                )
+                                            )
+                                        client_conn.close()
+                                    except:
+                                        pass
+
+                            # Odayı sil
+                            del rooms[current_room]
+                            print(
+                                f"Oda {current_room} oda sahibi tarafından kapatıldı."
+                            )
+
+                        # Oda sahibini de çıkar
+                        goodbye_msg = (
+                            "Sistem: Oda başarıyla kapatıldı. Bağlantı sonlandırılıyor."
+                        )
+                        if ENCRYPTION_AVAILABLE and cipher:
+                            encrypted_goodbye = encrypt_message(goodbye_msg, cipher)
+                            conn.send(
+                                f"LEAVE_SUCCESS:{encrypted_goodbye}\n".encode("utf-8")
+                            )
+                        else:
+                            conn.send(f"LEAVE_SUCCESS:{goodbye_msg}\n".encode("utf-8"))
+                        break
+
+                    elif confirm_type == "user":
+                        # Normal kullanıcı onayladı - sadece kendisini çıkar
+
+                        # Önce mesajı gönder
+                        goodbye_msg = "Sistem: Odadan başarıyla çıktınız. Bağlantı sonlandırılıyor."
+                        if ENCRYPTION_AVAILABLE and cipher:
+                            encrypted_goodbye = encrypt_message(goodbye_msg, cipher)
+                            conn.send(
+                                f"LEAVE_SUCCESS:{encrypted_goodbye}\n".encode("utf-8")
+                            )
+                        else:
+                            conn.send(f"LEAVE_SUCCESS:{goodbye_msg}\n".encode("utf-8"))
+
+                        # remove_client zaten broadcast yapacak, tekrar yapmaya gerek yok
+                        remove_client(conn)
+                        break
+
+                elif data.startswith("__leave_cancelled__"):
+                    # Çıkış iptal edildi
+                    cancel_msg = format_system_message("Odadan çıkış iptal edildi.")
+                    if ENCRYPTION_AVAILABLE and cipher:
+                        encrypted_cancel = encrypt_message(cancel_msg, cipher)
+                        conn.send(f"{encrypted_cancel}\n".encode("utf-8"))
+                    else:
+                        conn.send(f"{cancel_msg}\n".encode("utf-8"))
+
+                elif data == "/users":
+                    user_list = ", ".join(rooms[current_room]["usernames"].values())
+                    response_message = format_system_message(
+                        f"Odadaki kullanıcılar: {user_list}"
+                    )
+                    if ENCRYPTION_AVAILABLE and cipher:
+                        encrypted_response = encrypt_message(response_message, cipher)
+                        conn.send(f"{encrypted_response}\n".encode("utf-8"))
+                    else:
+                        conn.send(f"{response_message}\n".encode("utf-8"))
+
+                elif data == "/help":
+                    response_message = format_system_message(
+                        "Kullanılabilir komutlar: /users, /leave, /quit, /help"
+                    )
+                    if ENCRYPTION_AVAILABLE and cipher:
+                        encrypted_response = encrypt_message(response_message, cipher)
+                        conn.send(f"{encrypted_response}\n".encode("utf-8"))
+                    else:
+                        conn.send(f"{response_message}\n".encode("utf-8"))
+
+                elif not data.startswith("/") and not data.startswith("__"):
+                    # Gelen mesajı şifre çöz (eğer şifreleme mevcut ise)
+                    if ENCRYPTION_AVAILABLE and cipher:
+                        try:
+                            decrypted_message = decrypt_message(data, cipher)
+                            # Sunucu tarafında basit format - gruplandırma istemci tarafında yapılacak
+                            formatted_message = f"MSG:{username}:{decrypted_message}"
+                            broadcast(current_room, formatted_message, conn)
+                        except Exception:
+                            # Şifre çözülemezse orijinal mesajı kullan
+                            formatted_message = f"MSG:{username}:{data}"
+                            broadcast(current_room, formatted_message, conn)
+                    else:
+                        formatted_message = f"MSG:{username}:{data}"
+                        broadcast(current_room, formatted_message, conn)
+
     except (ConnectionResetError, UnicodeDecodeError):
         pass
     finally:
@@ -885,62 +839,10 @@ def receive_messages(client_socket):
 
     while not stop_thread:
         try:
-            data = client_socket.recv(4096)
+            data = client_socket.recv(1024).decode("utf-8")
             if not data:
                 break
-            # Dosya transferi protokolü
-            if data.startswith(b"__sendfile_incoming__:"):
-                parts = data.decode("utf-8").split(":")
-                mode = parts[1]
-                sender = parts[2]
-                file_name = parts[3]
-                file_size = int(parts[4])
-                if mode == "user":
-                    prompt = f"{sender} kullanıcısı size {file_name} ({file_size} bayt) isimli dosyayı gönderiyor. Kabul ediyor musunuz? (evet/e/hayır/h): "
-                else:
-                    prompt = f"{sender} kullanıcısı odaya {file_name} ({file_size} bayt) isimli dosyayı gönderiyor. Kabul ediyor musunuz? (evet/e/hayır/h): "
-                resp = input(prompt).strip().lower()
-                if resp in ["evet", "e", "yes", "y"]:
-                    client_socket.send("__sendfile_accept__".encode("utf-8"))
-                    # Dosya kaydetme penceresi
-                    try:
-                        import tkinter as tk
-                        from tkinter import filedialog
-                    except ImportError:
-                        import subprocess, sys
-                        subprocess.check_call([sys.executable, "-m", "pip", "install", "tk"])
-                        import tkinter as tk
-                        from tkinter import filedialog
-                    root = tk.Tk()
-                    root.withdraw()
-                    save_path = filedialog.asksaveasfilename(title="Kaydedilecek dosya yeri", initialfile=file_name)
-                    root.destroy()
-                    if not save_path:
-                        print("❌ Dosya kaydetme iptal edildi.")
-                        return
-                    # Dosya transferini başlat
-                    with open(save_path, "wb") as f:
-                        received = 0
-                        while received < file_size:
-                            chunk = client_socket.recv(4096)
-                            if not chunk:
-                                break
-                            if chunk.startswith(b"__sendfile_data__:"):
-                                header, filedata = chunk.split(b":", 5)[:5], chunk.split(b":", 5)[5]
-                                _, target_user, fname, offset, datalen = [h.decode("utf-8") for h in header]
-                                offset = int(offset)
-                                datalen = int(datalen)
-                                f.write(filedata)
-                                received += len(filedata)
-                                percent = int(received * 100 / file_size)
-                                bar = "[" + "#" * (percent // 5) + "-" * (20 - percent // 5) + "]"
-                                print(f"\rAlınıyor: {bar} %{percent}", end="")
-                        print()
-                        print("Transfer tamamlandı.")
-                else:
-                    client_socket.send("__sendfile_reject__".encode("utf-8"))
-                continue
-            buffer = data.decode("utf-8")
+            buffer += data
             while "\n" in buffer:
                 message, buffer = buffer.split("\n", 1)
 
@@ -1615,12 +1517,6 @@ def start_client(host_ip, port=DEFAULT_PORT, show_welcome=True):
                         elif current_input.startswith("/"):
                             # Bilinmeyen komutlar
                             sys.stdout.write("\r\x1b[K" + f"Bilinmeyen komut: {current_input}. /help yazarak yardım alabilirsiniz.\n")
-                        elif current_input == "/sendfile":
-                            sendfile_send_flow(username, client, current_room_id, join_room_id)
-                            current_input = ""
-                            sys.stdout.write(f"Siz: {current_input}")
-                            sys.stdout.flush()
-                            continue
                         else:
                             # Normal mesaj - şifrele ve gönder (eğer şifreleme mevcut ise)
                             if ENCRYPTION_AVAILABLE and client_cipher:
@@ -1815,115 +1711,3 @@ if __name__ == "__main__":
         print("  python3 client.py --host <PORT>             # Belirtilen port")
         print("Bir sunucuya bağlanmak için:")
         print("  python3 client.py --connect <IP_ADRESI>:<PORT>")
-
-# Dosyanın sonuna fonksiyon iskeleti ekle
-
-def sendfile_send_flow(username, client_socket, current_room_id, join_room_id):
-    """
-    /sendfile komutu ile dosya gönderme akışını başlatır.
-    1. Dosya seçme penceresi açılır
-    2. Hedef seçimi yapılır
-    3. Protokol mesajı hazırlanır ve gönderilir
-    4. Alıcıda onay, dosya transferi, progress bar ve tamamlandı mesajı
-    """
-    import os
-    import sys
-    import threading
-    import time
-    # tkinter otomatik yükle ve import et
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-    except ImportError:
-        import subprocess
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "tk"])
-        import tkinter as tk
-        from tkinter import filedialog
-
-    # 1. Dosya seçme
-    root = tk.Tk()
-    root.withdraw()
-    file_path = filedialog.askopenfilename(title="Göndermek için bir dosya seçin")
-    root.destroy()
-    if not file_path:
-        print("❌ Dosya seçilmedi. İşlem iptal edildi.")
-        return
-    file_name = os.path.basename(file_path)
-    file_size = os.path.getsize(file_path)
-    print(f"Seçilen dosya: {file_name} ({file_size} bayt)")
-
-    # 2. Hedef seçimi (prompt ile)
-    print("1. Kullanıcıya Dosya Gönder")
-    print("2. Odaya Dosya Gönder")
-    while True:
-        target_choice = "2"  # Otomatik oda (isteğe bağlı: prompt ile input alabilirsin)
-        break
-    if target_choice == "1":
-        # Kullanıcı listesi al
-        client_socket.send("/users".encode("utf-8"))
-        time.sleep(0.5)
-        try:
-            users_msg = client_socket.recv(4096).decode("utf-8")
-            users = []
-            if ":" in users_msg:
-                users = users_msg.split(":", 1)[1].strip().split(", ")
-            users = [u for u in users if u != username]
-            if not users:
-                print("Odadaki başka kullanıcı yok!")
-                return
-            target_user = users[0]  # Otomatik ilk kullanıcı (prompt ile seçilebilir)
-        except Exception:
-            print("Kullanıcı listesi alınamadı.")
-            return
-        # Protokol mesajı: kullanıcıya dosya gönderme isteği
-        req = f"__sendfile_request__:user:{target_user}:{file_name}:{file_size}"
-        client_socket.send(req.encode("utf-8"))
-        # Alıcıdan onay bekle
-        resp = client_socket.recv(1024).decode("utf-8")
-        if resp.startswith("__sendfile_reject__"):
-            print(f"{target_user} kullanıcısı dosyayı kabul etmedi.")
-            return
-        elif resp.startswith("__sendfile_accept__"):
-            # Dosya transferi başlat
-            sendfile_transfer(client_socket, file_path, file_size, file_name, target_user, is_room=False)
-    else:
-        # Odaya gönder
-        req = f"__sendfile_request__:room:{current_room_id}:{file_name}:{file_size}"
-        client_socket.send(req.encode("utf-8"))
-        # Her kullanıcıdan onay beklenir, kabul edenlere gönder
-        # Basit: Sunucu kabul edenlerin listesini döndürsün
-        resp = client_socket.recv(4096).decode("utf-8")
-        if resp.startswith("__sendfile_acceptlist__:"):
-            accept_users = resp.split(":", 1)[1].split(",")
-            for target_user in accept_users:
-                if target_user:
-                    sendfile_transfer(client_socket, file_path, file_size, file_name, target_user, is_room=True)
-        else:
-            print("Hiçbir kullanıcı dosyayı kabul etmedi veya hata oluştu.")
-            return
-
-def sendfile_transfer(client_socket, file_path, file_size, file_name, target_user, is_room):
-    """
-    Dosya transferi ve progress bar.
-    """
-    import os
-    import time
-    chunk_size = 4096
-    sent = 0
-    with open(file_path, "rb") as f:
-        while sent < file_size:
-            chunk = f.read(chunk_size)
-            if not chunk:
-                break
-            # Protokol: __sendfile_data__:<target>:<filename>:<offset>:<datalen>:<data>
-            header = f"__sendfile_data__:{target_user}:{file_name}:{sent}:{len(chunk)}:".encode("utf-8")
-            client_socket.sendall(header + chunk)
-            sent += len(chunk)
-            percent = int(sent * 100 / file_size)
-            bar = "[" + "#" * (percent // 5) + "-" * (20 - percent // 5) + "]"
-            print(f"\rGönderiliyor: {bar} %{percent}", end="")
-    print()
-    print("Transfer tamamlandı.")
-    # Son mesaj
-    if not is_room:
-        client_socket.send(f"__sendfile_done__:{target_user}:{file_name}".encode("utf-8"))
